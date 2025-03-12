@@ -1,0 +1,12 @@
+[package]
+name = "aegis"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aya = { workspace = true }
+aya-log = { workspace = true }
+
+[build-dependencies]
+aya-build = { workspace = true }
+anyhow = { workspace = true }
