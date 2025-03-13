@@ -6,9 +6,9 @@ edition = "2024"
 [dependencies]
 aya = { workspace = true }
 aya-log = { workspace = true }
-toml = "0.8"
-serde = { version = "1", features = ["derive"] }
-
+toml = { workspace = true, default-features = true }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["macros", "rt","rt-multi-thread","fs","io-util"] }
 [build-dependencies]
 aya-build = { workspace = true }
 anyhow = { workspace = true }

@@ -44,7 +44,7 @@ impl<'de> Deserialize<'de> for Num {
     {
         let s = String::deserialize(deserializer)?
             .chars()
-            .filter(|f| f.is_whitespace())
+            .filter(|f| !f.is_whitespace())
             .collect::<String>();
 
         if s.is_empty() {
@@ -54,6 +54,7 @@ impl<'de> Deserialize<'de> for Num {
             return Ok(Num::Singular(n));
         }
         if let Some((start, end)) = s.split_once('-').and_then(|(s, e)| {
+            dbg!(s);
             s.parse::<u32>()
                 .map_err(|e| {
                     if *e.kind() == IntErrorKind::Empty {
