@@ -1,3 +1,4 @@
+use ebpf_common::{Action, Host};
 use serde::{Deserialize, Serialize};
 use std::{net::IpAddr, num::IntErrorKind};
 
@@ -5,12 +6,7 @@ fn default<T: Default + PartialEq>(t: &T) -> bool {
     *t == Default::default()
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum Action {
-    Allow,
-    Deny,
-    Forward,
-}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Rule {
     pub action: Action,
@@ -32,7 +28,7 @@ pub struct Rule {
 pub enum Num {
     Singular(u32),
     Range(u32, u32),
-    Multi(Vec<u32>),
+    // Multi(Vec<u32>),
     #[default]
     Any,
 }
@@ -80,12 +76,12 @@ impl<'de> Deserialize<'de> for Num {
             return Ok(Num::Range(start, end));
         }
 
-        if s.contains(',') {
-            let nums: Result<Vec<u32>, _> = s.split(',').map(|x| x.parse::<u32>()).collect();
-            if let Ok(values) = nums {
-                return Ok(Num::Multi(values));
-            }
-        }
+        // if s.contains(',') {
+        //     let nums: Result<Vec<u32>, _> = s.split(',').map(|x| x.parse::<u32>()).collect();
+        //     if let Ok(values) = nums {
+        //         return Ok(Num::Multi(values));
+        //     }
+        // }
 
         Err(serde::de::Error::custom("Invalid Format"))
     }
@@ -100,22 +96,44 @@ impl Serialize for Num {
             Num::Any => serializer.serialize_str(""),
             Num::Singular(n) => serializer.serialize_str(&n.to_string()),
             Num::Range(start, end) => serializer.serialize_str(&format!("{}-{}", start, end)),
-            Num::Multi(nums) => {
-                let nums_str = nums
-                    .iter()
-                    .map(|n| n.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",");
-                serializer.serialize_str(&nums_str)
-            }
+            // Num::Multi(nums) => {
+            //     let nums_str = nums
+            //         .iter()
+            //         .map(|n| n.to_string())
+            //         .collect::<Vec<_>>()
+            //         .join(",");
+            //     serializer.serialize_str(&nums_str)
+            // }
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
-pub enum Host {
-    Ip(IpAddr, u8),
-    Domain(String),
-    #[default]
-    Any,
+// #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
+// pub enum Host {
+//     Ip(IpAddr, u8),
+//     Domain(String),
+//     #[default]
+//     Any,
+// }
+
+impl From<Rule> for ebpf_common::Rule {
+    fn from(v: Rule) -> Self {
+        ebpf_common::Rule{
+            action: v.action,
+            host: v.host,
+            port: ebpf_common::Num::from(v.port),
+            uid: ebpf_common::Num::from(v.uid),
+            pid: ebpf_common::Num::from(v.pid),
+        }
+    }
+}
+
+impl From<Num> for ebpf_common::Num{
+    fn from(v: Num) -> Self {
+        match v {
+            Num::Singular(v) => ebpf_common::Num::Singular(v),
+            Num::Range(from, to) => ebpf_common::Num::Range(from, to),
+            Num::Any => ebpf_common::Num::Any,
+        }
+    }
 }

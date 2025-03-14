@@ -9,6 +9,10 @@ aya-log = { workspace = true }
 toml = { workspace = true, default-features = true }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["macros", "rt","rt-multi-thread","fs","io-util"] }
+ebpf-common = { path = "../ebpf/common" }
+heapless = "0.8.0"
+postcard = "1.1.1"
+rlimit = "0.10.2"
 [build-dependencies]
 aya-build = { workspace = true }
 anyhow = { workspace = true }

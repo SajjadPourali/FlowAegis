@@ -1,5 +1,5 @@
 [rules.test]
 action = "Forward"
-Domain = "google.com"
+Ip = ["255.255.255.255", 8080]
 port = "1-10"
-uid = "1,2,3,4"
+uid = "100"

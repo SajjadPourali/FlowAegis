@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 aya = { workspace = true, optional = true }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
 
 [lib]
 path = "src/lib.rs"
