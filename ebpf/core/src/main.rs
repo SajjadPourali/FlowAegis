@@ -5,6 +5,8 @@ use aya_ebpf::{macros::map, maps::Array};
 use aya_log_ebpf::info;
 // use ebpf_common::rule;
 
+mod cgroups;
+
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
@@ -14,4 +16,4 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 
 
 #[map]
-pub static RULES: Array<[u8; 32]> = Array::with_max_entries(100, 0);
+pub static RULES: Array<[u8; 100]> = Array::with_max_entries(100, 0);

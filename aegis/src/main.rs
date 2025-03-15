@@ -1,6 +1,9 @@
 use std::{collections::HashMap, net::Ipv4Addr};
 
-use aya::maps::HashMap as AyaHashMap;
+use aya::{
+    maps::HashMap as AyaHashMap,
+    programs::{CgroupAttachMode, CgroupSockAddr},
+};
 use aya_log::EbpfLogger;
 use rule::Rule;
 
@@ -15,6 +18,8 @@ pub struct Rules {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+    log::info!("starting up");
     rlimit::increase_nofile_limit(rlimit::INFINITY).ok();
     rlimit::setrlimit(
         rlimit::Resource::MEMLOCK,
@@ -49,27 +54,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         env!("OUT_DIR"),
         "/ebpf"
     )))?;
-    // if let Err(e) = EbpfLogger::init(&mut ebpf) {
-    //     dbg!(e);
-    //     // This can happen if you remove all log statements from your eBPF program.
-    //     // warn!("failed to initialize eBPF logger: {}", e);
-    // }
-    let o = EbpfLogger::init(&mut ebpf).unwrap();
-    let mut array: aya::maps::Array<&mut aya::maps::MapData, [u8; 32]> =
+    if let Err(e) = EbpfLogger::init(&mut ebpf) {
+        dbg!(e);
+        // This can happen if you remove all log statements from your eBPF program.
+        // warn!("failed to initialize eBPF logger: {}", e);
+    }
+    // let o = EbpfLogger::init(&mut ebpf).unwrap();
+    let mut array: aya::maps::Array<&mut aya::maps::MapData, [u8; 100]> =
         aya::maps::Array::try_from(ebpf.map_mut("RULES").unwrap())?;
-    let mut buf = [0u8; 32];
-    for (r_name, r) in rules.rules {
+    for (index, (r_name, r)) in rules.rules.into_iter().enumerate() {
         let r = ebpf_common::Rule::from(r);
-        let output = postcard::to_slice(&r, &mut buf).unwrap().to_vec();
-        dbg!(r);
-        dbg!(output);
-        dbg!(buf);
-
-        array.set(1, buf, 0).unwrap();
+        // let output = postcard::to_slice(&r, &mut buf).unwrap().to_vec();
+        // dbg!(r);
+        // dbg!(output);
+        // dbg!(buf);
+        dbg!(index);
+        let s = Into::<[u8; 100]>::into(&r);
+        dbg!(&s);
+        array.set(index as u32, s, 0).unwrap();
     }
     // let output: Vec<u8, 11> = postcard::to_vec(&rules).unwrap().to_vec();
     // array.set(1,1u8,0);
 
+    for prog in vec!["connect4", "connect6"] {
+        let program: &mut CgroupSockAddr = ebpf.program_mut(prog).unwrap().try_into().unwrap();
+        let cgroup = std::fs::File::open("/sys/fs/cgroup").unwrap();
+        program.load().unwrap();
+        program.attach(cgroup, CgroupAttachMode::Single).unwrap();
+    }
     println!("Hello, world!");
+    let ctrl_c = tokio::signal::ctrl_c();
+    println!("Waiting for Ctrl-C...");
+    ctrl_c.await?;
+    println!("Exiting...");
     Ok(())
 }

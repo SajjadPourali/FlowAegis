@@ -3,3 +3,9 @@ action = "Forward"
 Ip = ["255.255.255.255", 8080]
 port = "1-10"
 uid = "100"
+
+[rules.test2]
+action = "Forward"
+Ip = ["255.255.255.255", 8080]
+port = "1-10"
+uid = "100"
