@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // dbg!(output);
         // dbg!(buf);
         dbg!(index);
-        let s = Into::<[u8; 100]>::into(&r);
+        let s = TryInto::<[u8; 100]>::try_into(&r).unwrap();
         dbg!(&s);
         array.set(index as u32, s, 0).unwrap();
     }

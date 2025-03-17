@@ -32,19 +32,22 @@ pub enum Host {
     Any,
 }
 
-impl Into<[u8; 100]> for &Rule {
-    fn into(self) -> [u8; 100] {
+impl TryInto<[u8; 100]> for &Rule {
+    type Error = ();
+    fn try_into(self) -> Result<[u8; 100], ()> {
         let mut buf = [0u8; 100];
         let output = postcard::to_slice(self, &mut buf).unwrap();
         for i in 0..output.len() {
             buf[i] = 250;
         }
-        buf
+        Ok(buf)
     }
 }
 
-// impl From<&[u8]> for Rule {
-//     fn from(buf: &[u8]) -> Rule {
-//         todo!()
-//     }
-// }
+impl TryFrom<&[u8]> for Rule {
+    type Error = ();
+    fn try_from(buf: &[u8]) -> Result<Rule, ()> {
+        let out: Rule = postcard::from_bytes(buf).unwrap();
+        Ok(out)
+    }
+}
