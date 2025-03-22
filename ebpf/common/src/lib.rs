@@ -1,19 +1,44 @@
 #![no_std]
 
-pub mod main_program_info {
-    pub const ACTIVE_RULES_NUM: u32 = 0;
-}
+// pub mod main_program_info {
+//     pub const ACTIVE_RULES_NUM: u32 = 0;
+//     pub const FORWARD_IPV4: u32 = 1;
+//     pub const PROXY_IPV4: u32 = 2;
+//     pub const FORWARD_IPV6_OCT1: u32 = 3;
+//     pub const FORWARD_IPV6_OCT2: u32 = 4;
+//     pub const FORWARD_IPV6_OCT3: u32 = 5;
+//     pub const FORWARD_IPV6_OCT4: u32 = 6;
+//     pub const PROXY_IPV6_OCT1: u32 = 7;
+//     pub const PROXY_IPV6_OCT2: u32 = 8;
+//     pub const PROXY_IPV6_OCT3: u32 = 9;
+//     pub const PROXY_IPV6_OCT4: u32 = 10;
+// }
 
-use core::net::{IpAddr, SocketAddr};
+#[derive(Clone, Copy)]
+pub struct MainProgramInfo {
+    pub uid: u32,
+    pub pid: u32,
+    pub number_of_active_rules: u32,
+    pub forward_v4_address: SocketAddrV4,
+    pub proxy_v4_address: SocketAddrV4,
+    pub forward_v6_address: SocketAddrV6,
+    pub proxy_v6_address: SocketAddrV6,
+}
+#[cfg(feature = "user")]
+unsafe impl aya::Pod for MainProgramInfo {}
+
+use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default)]
 pub enum Action {
+    #[default]
     Allow,
     Deny,
     Forward,
+    Proxy,
 }
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Rule {
     pub action: Action,
     pub host: Host,
@@ -22,6 +47,7 @@ pub struct Rule {
     pub gid: Num,
     pub pid: Num,
 }
+
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for Rule {}
 
@@ -34,88 +60,62 @@ pub enum Num {
     Any,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone, Copy)]
+impl Num {
+    pub fn matches(&self, num: u32) -> bool {
+        match self {
+            Num::Any => true,
+            Num::Singular(n) => *n == num,
+            Num::Range(start, end) => num >= *start && num <= *end,
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub enum Host {
-    Ip(IpAddr, u8),
+    Ipv4(u32, u32),
+    Ipv6(u128, u128),
     #[default]
     Any,
 }
 
 impl Host {
-    pub fn matches(&self, ip: IpAddr) -> bool {
+    pub fn matches_ipv4(&self, ipv4: Ipv4Addr) -> bool {
         match self {
             Host::Any => true,
-            Host::Ip(subnet, subnet_len) => match (ip, subnet) {
-                (IpAddr::V4(ipv4), IpAddr::V4(subnet_ipv4)) => {
-                    let ip_u32 = u32::from(ipv4);
-                    let subnet_u32 = u32::from(*subnet_ipv4);
-                    let netmask_u32 = !((1u32 << (32 - subnet_len)) - 1);
-
-                    (ip_u32 & netmask_u32) == (subnet_u32 & netmask_u32)
-                }
-                (IpAddr::V6(ipv6), IpAddr::V6(subnet_ipv6)) => {
-                    let ip_u128 = u128::from(ipv6);
-                    let subnet_u128 = u128::from(*subnet_ipv6);
-                    let mask_u128 = !((1u128 << (128 - subnet_len)) - 1);
-
-                    (ip_u128 & mask_u128) == (subnet_u128 & mask_u128)
-                }
-                _ => false,
-            },
+            Host::Ipv4(ip, mask) => {
+                let ip = ip.to_be();
+                let mask = mask.to_be();
+                let ipv4 = ipv4.to_bits().to_be();
+                (ip & mask) == (ipv4 & mask)
+            }
+            Host::Ipv6(_, _) => false,
+        }
+    }
+    pub fn matches_ipv6(&self, ipv6: Ipv6Addr) -> bool {
+        match self {
+            Host::Any => true,
+            Host::Ipv4(_, _) => false,
+            Host::Ipv6(ip, mask) => {
+                let ip = ip.to_be();
+                let mask = mask.to_be();
+                let ipv6 = ipv6.to_bits().to_be();
+                (ip & mask) == (ipv6 & mask)
+            }
         }
     }
 }
-
-// impl TryInto<[u8; 100]> for &Rule {
-//     type Error = ();
-//     fn try_into(self) -> Result<[u8; 100], ()> {
-//         let mut buf = [0u8; 100];
-//         let output = postcard::to_slice(self, &mut buf).unwrap();
-//         for i in 0..output.len() {
-//             buf[i] = 250;
-//         }
-//         Ok(buf)
-//     }
-// }
-
-// impl TryFrom<&[u8]> for Rule {
-//     type Error = ();
-//     fn try_from(buf: &[u8]) -> Result<Self, ()> {
-//         let out = postcard::from_bytes(buf).unwrap();
-//         Ok(out)
-//     }
-// }
-
 #[derive(Debug)]
 pub struct NetworkTuple {
     pub src: SocketAddr,
     pub dst: SocketAddr,
 }
 
-// impl TryFrom<&[u8]> for NetworkTuple {
-//     type Error = ();
-//     fn try_from(buf: &[u8]) -> Result<Self, ()> {
-//         let out = postcard::from_bytes(buf).unwrap();
-
-//         Ok(out)
-//     }
-// }
-// impl Into<[u8; 36]> for &NetworkTuple {
-//     fn into(self) -> [u8; 36] {
-//         let mut buf = [2u8; 36];
-//         let output = postcard::to_slice(self, &mut buf).unwrap();
-//         // for i in 0..output.len() {
-//         //     buf[i] = 250;
-//         // }
-//         buf
-//     }
-// }
-
 #[derive(Debug)]
 pub struct CgroupInfo {
-    pub action: Action,
     pub dst: SocketAddr,
     pub uid: u32,
+    pub gid: u32,
     pub pid: u32,
     pub tgid: u32,
+    pub rule: u32,
 }

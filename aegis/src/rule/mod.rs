@@ -1,12 +1,12 @@
-use ebpf_common::{Action, Host};
+use ebpf_common::Action;
 use serde::{Deserialize, Serialize};
-use std::num::IntErrorKind;
+use std::{net::IpAddr, num::IntErrorKind};
 
 fn default<T: Default + PartialEq>(t: &T) -> bool {
     *t == Default::default()
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Rule {
     pub action: Action,
     #[serde(flatten)]
@@ -24,6 +24,13 @@ pub struct Rule {
     #[serde(default)]
     #[serde(skip_serializing_if = "default")]
     pub pid: Num,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone, Copy)]
+pub enum Host {
+    Ip(IpAddr, u8),
+    #[default]
+    Any,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -110,23 +117,31 @@ impl Serialize for Num {
     }
 }
 
-// #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
-// pub enum Host {
-//     Ip(IpAddr, u8),
-//     Domain(String),
-//     #[default]
-//     Any,
-// }
-
 impl From<Rule> for ebpf_common::Rule {
     fn from(v: Rule) -> Self {
         ebpf_common::Rule {
             action: v.action,
-            host: v.host,
+            host: ebpf_common::Host::from(v.host),
             port: ebpf_common::Num::from(v.port),
             uid: ebpf_common::Num::from(v.uid),
             gid: ebpf_common::Num::from(v.gid),
             pid: ebpf_common::Num::from(v.pid),
+        }
+    }
+}
+
+impl From<Host> for ebpf_common::Host {
+    fn from(v: Host) -> Self {
+        match v {
+            Host::Ip(ip_addr, subnet_len) => match ip_addr {
+                IpAddr::V4(ipv4) => {
+                    ebpf_common::Host::Ipv4(u32::from(ipv4), !((1u32 << (32 - subnet_len)) - 1))
+                }
+                IpAddr::V6(ipv6) => {
+                    ebpf_common::Host::Ipv6(u128::from(ipv6), !((1u128 << (128 - subnet_len)) - 1))
+                }
+            },
+            Host::Any => ebpf_common::Host::Any,
         }
     }
 }

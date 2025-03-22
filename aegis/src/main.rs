@@ -1,27 +1,29 @@
-use std::{collections::HashMap, mem, net::Ipv4Addr, ptr};
+use std::{
+    collections::HashMap,
+    net::{SocketAddrV4, SocketAddrV6},
+    ptr,
+};
 
 use aya::{
-    maps::{
-        AsyncPerfEventArray, HashMap as AyaHashMap, MapData, SockHash, SockMap,
-        perf::PerfBufferError,
-    },
-    programs::{
-        CgroupAttachMode, CgroupSockAddr, CgroupSockopt, SchedClassifier, SkMsg, SkSkb, SockOps,
-        TcAttachType, tc,
-    },
+    maps::{AsyncPerfEventArray, perf::PerfBufferError},
+    programs::{CgroupAttachMode, CgroupSockAddr, SockOps},
     util::online_cpus,
 };
 use aya_log::EbpfLogger;
 use bytes::BytesMut;
-use ebpf_common::{NetworkTuple, main_program_info::ACTIVE_RULES_NUM};
+use ebpf_common::{CgroupInfo, MainProgramInfo, NetworkTuple};
 use rule::Rule;
 
 mod rule;
 use serde::{Deserialize, Serialize};
-use tokio::{io::AsyncReadExt, task};
+use tokio::{io::AsyncReadExt, select, task};
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Rules {
+pub struct Config {
+    proxy_address_ipv4: SocketAddrV4,
+    forward_address_ipv4: SocketAddrV4,
+    proxy_address_ipv6: SocketAddrV6,
+    forward_address_ipv6: SocketAddrV6,
     rules: HashMap<String, Rule>,
 }
 
@@ -37,10 +39,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .unwrap();
 
-    let mut rules_file = tokio::fs::File::open("rules.toml").await?;
+    let mut config_file = tokio::fs::File::open("rules.toml").await?;
     let mut rules = String::new();
-    rules_file.read_to_string(&mut rules).await?;
-    let rules: Rules = toml::from_str(&rules).unwrap();
+    config_file.read_to_string(&mut rules).await?;
+    let config: Config = toml::from_str(&rules).unwrap();
+    // let r = Rule {
+    //     action: ebpf_common::Action::Allow,
+    //     ..Default::default()
+    // };
+    // let mut rules = Config {
+    //     rules: HashMap::new(),
+    //     proxy_address_ipv4: Ipv4Addr::BROADCAST,
+    //     forward_address_ipv4: Ipv4Addr::BROADCAST,
+    //     proxy_address_ipv6: Ipv6Addr::LOCALHOST,
+    //     forward_address_ipv6: Ipv6Addr::LOCALHOST,
+    // };
+
+    // let o = toml::to_string(&r).unwrap();
+    // println!("{}", o);
     /*
     let mut rules = Rules{
         rules: HashMap::new()
@@ -57,47 +73,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("{:?}", rules);
     */
-    let o = toml::to_string(&rules).unwrap();
+    let o = toml::to_string(&config).unwrap();
     println!("{}", o);
     let mut ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
         env!("OUT_DIR"),
         "/ebpf"
     )))?;
 
-    if let Err(e) = EbpfLogger::init(&mut ebpf) {
-        dbg!(e);
-        // This can happen if you remove all log statements from your eBPF program.
-        // warn!("failed to initialize eBPF logger: {}", e);
-    }
-    // let o = EbpfLogger::init(&mut ebpf).unwrap();
-    let mut main_app_info: aya::maps::Array<&mut aya::maps::MapData, u32> =
+    // if let Err(e) = EbpfLogger::init(&mut ebpf) {
+    //     dbg!(e);
+    //     // This can happen if you remove all log statements from your eBPF program.
+    //     // warn!("failed to initialize eBPF logger: {}", e);
+    // }
+    let o = EbpfLogger::init(&mut ebpf).unwrap();
+    let main_program_info = MainProgramInfo {
+        uid: 0,
+        pid: 0,
+        number_of_active_rules: config.rules.len() as u32,
+        forward_v4_address: config.forward_address_ipv4,
+        proxy_v4_address: config.proxy_address_ipv4,
+        forward_v6_address: config.forward_address_ipv6,
+        proxy_v6_address: config.proxy_address_ipv6,
+    };
+    let mut main_program_info_map: aya::maps::Array<&mut aya::maps::MapData, MainProgramInfo> =
         aya::maps::Array::try_from(ebpf.map_mut("MAIN_APP_INFO").unwrap())?;
-    main_app_info
-        .set(
-            rules.rules.len() as u32,
-            ebpf_common::main_program_info::ACTIVE_RULES_NUM,
-            0,
-        )
-        .unwrap();
-    main_app_info
-        .set(ACTIVE_RULES_NUM, rules.rules.len() as u32, 0)
-        .unwrap();
-    
+    main_program_info_map.set(0, main_program_info, 0).unwrap();
+
     let mut array: aya::maps::Array<&mut aya::maps::MapData, ebpf_common::Rule> =
         aya::maps::Array::try_from(ebpf.map_mut("RULES").unwrap())?;
-    for (index, (r_name, r)) in rules.rules.into_iter().enumerate() {
+    let mut rule_names = Vec::with_capacity(config.rules.len());
+    for (index, (r_name, r)) in config.rules.into_iter().enumerate() {
         let r = ebpf_common::Rule::from(r);
-        // let output = postcard::to_slice(&r, &mut buf).unwrap().to_vec();
-        // dbg!(r);
-        // dbg!(output);
-        // dbg!(buf);
-        // dbg!(index);
-        // let s = TryInto::<[u8; 100]>::try_into(&r).unwrap();
-        // dbg!(&s);
+        rule_names.push(r_name);
         array.set(index as u32, &r, 0).unwrap();
     }
-    // let output: Vec<u8, 11> = postcard::to_vec(&rules).unwrap().to_vec();
-    // array.set(1,1u8,0);
 
     let cgroup = std::fs::File::open("/sys/fs/cgroup").unwrap();
     for prog in vec!["connect4", "connect6"] {
@@ -111,30 +120,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let program: &mut SockOps = ebpf.program_mut("bpf_sockops").unwrap().try_into().unwrap();
     program.load().unwrap();
     program.attach(&cgroup, CgroupAttachMode::Single).unwrap();
-    let mut sched_process_fork_event =
-        AsyncPerfEventArray::try_from(ebpf.take_map("SCHED_PROCESS_FORK_EVENT").unwrap()).unwrap();
+    let mut network_tuple =
+        AsyncPerfEventArray::try_from(ebpf.take_map("NETWORK_TUPLE").unwrap()).unwrap();
+    let mut cgroup_info =
+        AsyncPerfEventArray::try_from(ebpf.take_map("CGROUP_INFO").unwrap()).unwrap();
 
     for cpu_id in online_cpus().map_err(|(_, error)| error)? {
         // open a separate perf buffer for each cpu
-        let mut buf = sched_process_fork_event.open(cpu_id, None)?;
+        let mut network_tuple_buf = network_tuple.open(cpu_id, None)?;
+        let mut cgroup_info_buf = cgroup_info.open(cpu_id, None)?;
 
         // process each perf buffer in a separate task
         task::spawn(async move {
-            let mut buffers = (0..10)
+            let mut network_tuple_buffers = (0..10)
+                .map(|_| BytesMut::with_capacity(1024))
+                .collect::<Vec<_>>();
+            let mut cgroup_info_buffers = (0..10)
                 .map(|_| BytesMut::with_capacity(1024))
                 .collect::<Vec<_>>();
 
             loop {
                 // wait for events
-                dbg!(1);
-                let events = buf.read_events(&mut buffers).await?;
-                dbg!(2);
-                // events.read contains the number of events that have been read,
-                // and is always <= buffers.len()
-                for i in 0..events.read {
-                    let buf = &mut buffers[i];
-                    let tuple = unsafe { ptr::read_unaligned(buf.as_ptr() as *const NetworkTuple) };
-                    dbg!(tuple);
+                select! {
+                    Ok(events) = network_tuple_buf.read_events(&mut network_tuple_buffers) =>{
+                        for i in 0..events.read {
+                            let buf = &mut network_tuple_buffers[i];
+                            let tuple = unsafe { ptr::read_unaligned(buf.as_ptr() as *const NetworkTuple) };
+                            dbg!(tuple);
+                        }
+                    }
+                    Ok(events) = cgroup_info_buf.read_events(&mut cgroup_info_buffers) =>{
+                        for i in 0..events.read {
+                            let buf = &mut cgroup_info_buffers[i];
+                            let tuple = unsafe { ptr::read_unaligned(buf.as_ptr() as *const CgroupInfo) };
+                            dbg!(tuple);
+                        }
+                    }
                 }
             }
 

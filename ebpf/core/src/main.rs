@@ -1,81 +1,131 @@
 #![no_std]
 #![no_main]
-use core::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 use aya_ebpf::{
     EbpfContext,
-    helpers::{bpf_get_current_pid_tgid, bpf_get_current_uid_gid, r#gen::bpf_ktime_get_ns},
     macros::{cgroup_sock_addr, map, sock_ops},
     maps::{Array, PerfEventArray},
     programs::{SockAddrContext, SockOpsContext},
 };
+
 use aya_log_ebpf::info;
-use ebpf_common::{main_program_info::ACTIVE_RULES_NUM, NetworkTuple, Num, Rule};
+
+use ebpf_common::{Action, CgroupInfo, MainProgramInfo, NetworkTuple, Rule};
 
 #[map]
-pub static RULES: Array<Rule> = Array::with_max_entries(2048, 0);
+pub static RULES: Array<Rule> = Array::with_max_entries(256, 0);
 
 #[map]
-pub static MAIN_APP_INFO: Array<u32> = Array::with_max_entries(100, 0);
+pub static MAIN_APP_INFO: Array<MainProgramInfo> = Array::with_max_entries(100, 0);
 
 #[map]
-pub static SCHED_PROCESS_FORK_EVENT: PerfEventArray<NetworkTuple> = PerfEventArray::new(0);
+pub static NETWORK_TUPLE: PerfEventArray<NetworkTuple> = PerfEventArray::new(0);
+
+#[map]
+pub static CGROUP_INFO: PerfEventArray<CgroupInfo> = PerfEventArray::new(0);
 
 #[cgroup_sock_addr(connect4)]
 pub fn connect4(ctx: SockAddrContext) -> i32 {
-    // let uid = bpf_get_current_uid_gid() as u32;
-    let Some(num_rules) = MAIN_APP_INFO.get(ACTIVE_RULES_NUM) else {
+    let Some(main_program_info) = MAIN_APP_INFO.get(0) else {
         return 1;
     };
-    let mut bpf_sock_addr = unsafe { *ctx.sock_addr };
-    let dst_ip = IpAddr::V4(Ipv4Addr::from_bits(bpf_sock_addr.user_ip4.swap_bytes()));
-    let o = *num_rules;
-    info!(&ctx, "connect4 {}", *num_rules);
-    // let i = RULES.get_ptr(1).unwrap();
-    for i in 0..o.min(2048) {
-        // info!(&ctx, "connect4 {}", i);
-        let rule = RULES.get(i).unwrap();
-        // if rule.host.matches(dst_ip) {
-        if rule.gid == Num::Any {
-            info!(&ctx, "connect4 {}",1);
-        }
-        // }
-    }
-
-    bpf_sock_addr.user_ip6[0] = 100;
-
-    let transport_protocol = bpf_sock_addr.user_ip6[0] as u16;
-    // unsafe{(*ctx.sock_addr).user_ip4 = 0};
-    let transport_protocol = unsafe { *ctx.sock_addr }.user_ip4;
-    // let cookie = unsafe{bpf_get_socket_cookie(transport_protocol)};
-    // #[derive(Debug)]
-    // pub struct CgroupInfo {
-    //     pub action: Action,
-    //     pub dst: SocketAddr,
-    //     pub uid: u32,
-    //     pub pid: u32,
-    //     pub tgid: u32,
-    // }
-    info!(
-        &ctx,
-        "connect4 {} - {}",
-        unsafe { bpf_ktime_get_ns() },
-        transport_protocol
-    );
 
     let bpf_sock_addr = unsafe { *ctx.sock_addr };
-    let transport_protocol = bpf_sock_addr.protocol as u16;
-    1
+    if bpf_sock_addr.protocol != 6 {
+        // TCP
+        return 1;
+    }
+    let dst_ip = Ipv4Addr::from_bits(bpf_sock_addr.user_ip4.swap_bytes());
+    let port = (bpf_sock_addr.user_port as u16).swap_bytes();
+    let uid = ctx.uid();
+    let pid = ctx.pid();
+    let mut rule_id = 0;
+    let mut action = None;
+    for i in 0..(main_program_info.number_of_active_rules).min(256) {
+        let Some(rule) = RULES.get(i) else { return 1 };
+        if rule.host.matches_ipv4(dst_ip)
+            && rule.port.matches(port as u32)
+            && rule.uid.matches(uid)
+            && rule.pid.matches(pid)
+        {
+            action = Some(rule.action);
+            rule_id = i;
+            break;
+        }
+    }
+    let Some(action) = action else { return 1 };
+
+    let cgroup_info = CgroupInfo {
+        dst: SocketAddr::V4(SocketAddrV4::new(dst_ip, port as u16)),
+        uid,
+        gid: ctx.gid(),
+        pid,
+        tgid: ctx.tgid(),
+        rule: rule_id,
+    };
+
+    CGROUP_INFO.output(&ctx, &cgroup_info, 0);
+    match action {
+        Action::Deny => 0,
+        Action::Allow => 1,
+        Action::Proxy => 1,
+        Action::Forward => unsafe {
+            info!(
+                &ctx,
+                "connect 4 {}",
+                aya_ebpf::helpers::r#gen::bpf_get_current_task()
+            );
+            // (*(*ctx.sock_addr).__bindgen_anon_1.sk).src_port = 1;
+            (*ctx.sock_addr).user_ip4 =
+                u32::from_ne_bytes(main_program_info.forward_v4_address.ip().octets());
+            (*ctx.sock_addr).user_port =
+                main_program_info.forward_v4_address.port().swap_bytes() as u32;
+            1
+        },
+    }
 }
 
 #[cgroup_sock_addr(connect6)]
 pub fn connect6(ctx: SockAddrContext) -> i32 {
-    // let uid = bpf_get_current_uid_gid() as u32;
-    info!(&ctx, "connect6 {}", 1);
+    let Some(main_program_info) = MAIN_APP_INFO.get(0) else {
+        return 1;
+    };
     let bpf_sock_addr = unsafe { *ctx.sock_addr };
-    let transport_protocol = bpf_sock_addr.protocol as u16;
+    if bpf_sock_addr.protocol != 6 {
+        // TCP
+        return 1;
+    }
+    let dst_ip = Ipv6Addr::from_bits(u32_array_to_u128(bpf_sock_addr.user_ip6).swap_bytes());
+    let port = bpf_sock_addr.user_port.swap_bytes() as u32;
+    let uid = ctx.uid();
+    let pid = ctx.pid();
+    let mut rule_id = 0;
+    let mut action = None;
+    for i in 0..main_program_info.number_of_active_rules.min(256) {
+        let Some(rule) = RULES.get(i) else { return 1 };
+        if rule.host.matches_ipv6(dst_ip)
+            && rule.port.matches(port as u32)
+            && rule.uid.matches(uid)
+            && rule.pid.matches(pid)
+        {
+            action = Some(rule.action);
+            rule_id = i;
+            break;
+        }
+    }
+    let Some(action) = action else { return 1 };
 
-    1
+    let cgroup_info = CgroupInfo {
+        dst: SocketAddr::V6(SocketAddrV6::new(dst_ip, port as u16, 0, 0)),
+        uid,
+        gid: ctx.gid(),
+        pid,
+        tgid: ctx.tgid(),
+        rule: rule_id,
+    };
+    CGROUP_INFO.output(&ctx, &cgroup_info, 0);
+    !matches!(action, Action::Deny) as i32
 }
 
 #[inline(always)]
@@ -88,6 +138,13 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
     if ctx.op() != 4 {
         // BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB
         return 0;
+    }
+    unsafe {
+        info!(
+            &ctx,
+            "bpf_sockops {}",
+            aya_ebpf::helpers::r#gen::bpf_get_current_task()
+        );
     }
     let remote_port = ctx.remote_port().swap_bytes();
     let local_port = ctx.local_port();
@@ -122,7 +179,7 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
     } else {
         return 0;
     };
-    SCHED_PROCESS_FORK_EVENT.output(&ctx, &NetworkTuple { src, dst }, 0);
+    NETWORK_TUPLE.output(&ctx, &NetworkTuple { src, dst }, 0);
     0
 }
 
