@@ -25,6 +25,7 @@ dependencies = [
  "aya",
  "aya-build",
  "aya-log",
+ "bytes",
  "ebpf-common",
  "env_logger",
  "log",
@@ -387,6 +388,7 @@ dependencies = [
  "aya-ebpf",
  "aya-log-ebpf",
  "ebpf-common",
+ "postcard",
  "which",
 ]
 

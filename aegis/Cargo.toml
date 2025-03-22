@@ -8,8 +8,16 @@ aya = { workspace = true }
 aya-log = { workspace = true }
 toml = { workspace = true, default-features = true }
 serde = { workspace = true, features = ["derive"] }
-tokio = { workspace = true, features = ["macros", "rt","rt-multi-thread","fs","io-util","signal"] }
-ebpf-common = { path = "../ebpf/common" }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt",
+    "rt-multi-thread",
+    "fs",
+    "io-util",
+    "signal",
+] }
+ebpf-common = { path = "../ebpf/common", features = ["user"] }
+bytes = "1.10.1"
 # heapless = "0.8.0"
 # postcard = "1.1.1"
 rlimit = "0.10.2"

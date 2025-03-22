@@ -1,11 +1,10 @@
 use ebpf_common::{Action, Host};
 use serde::{Deserialize, Serialize};
-use std::{net::IpAddr, num::IntErrorKind};
+use std::num::IntErrorKind;
 
 fn default<T: Default + PartialEq>(t: &T) -> bool {
     *t == Default::default()
 }
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Rule {
@@ -19,6 +18,9 @@ pub struct Rule {
     #[serde(default)]
     #[serde(skip_serializing_if = "default")]
     pub uid: Num,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "default")]
+    pub gid: Num,
     #[serde(default)]
     #[serde(skip_serializing_if = "default")]
     pub pid: Num,
@@ -82,7 +84,7 @@ impl<'de> Deserialize<'de> for Num {
         //         return Ok(Num::Multi(values));
         //     }
         // }
-        
+
         Err(serde::de::Error::custom("Invalid Format"))
     }
 }
@@ -118,17 +120,18 @@ impl Serialize for Num {
 
 impl From<Rule> for ebpf_common::Rule {
     fn from(v: Rule) -> Self {
-        ebpf_common::Rule{
+        ebpf_common::Rule {
             action: v.action,
             host: v.host,
             port: ebpf_common::Num::from(v.port),
             uid: ebpf_common::Num::from(v.uid),
+            gid: ebpf_common::Num::from(v.gid),
             pid: ebpf_common::Num::from(v.pid),
         }
     }
 }
 
-impl From<Num> for ebpf_common::Num{
+impl From<Num> for ebpf_common::Num {
     fn from(v: Num) -> Self {
         match v {
             Num::Singular(v) => ebpf_common::Num::Singular(v),
