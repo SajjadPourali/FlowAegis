@@ -1,15 +1,17 @@
-use std::{
-    collections::HashMap,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
-    ptr,
-    sync::Arc,
-    time::Duration,
-};
-
 use aya::{
     maps::AsyncPerfEventArray,
     programs::{CgroupAttachMode, CgroupSockAddr, SockOps},
     util::online_cpus,
+};
+use futures::{
+    Stream, StreamExt,
+    stream::{self, select_all},
+};
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6},
+    pin::Pin,
+    ptr,
 };
 // use aya_log::EbpfLogger;
 use bytes::BytesMut;
@@ -18,7 +20,7 @@ use rule::Rule;
 
 mod rule;
 use serde::{Deserialize, Serialize};
-use tokio::{io::AsyncReadExt, net::TcpListener, select, sync::Mutex, task};
+use tokio::{io::AsyncReadExt, select};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -89,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("{:?}", rules);
     */
-    let o = toml::to_string(&config).unwrap();
+    // let o = toml::to_string(&config).unwrap();
     let mut ebpf = Ebpf::new();
     ebpf.set_forward_v4_address(config.forward_address_ipv4);
     ebpf.set_proxy_v4_address(config.proxy_address_ipv4);
@@ -98,76 +100,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ebpf.set_rules(config.rules);
     ebpf.load_main_program_info();
     ebpf.load_cgroups();
-
-    let mut network_tuple =
-        AsyncPerfEventArray::try_from(ebpf.inner.take_map("NETWORK_TUPLE").unwrap()).unwrap();
-    let mut cgroup_info =
-        AsyncPerfEventArray::try_from(ebpf.inner.take_map("CGROUP_INFO").unwrap()).unwrap();
-
-    for cpu_id in online_cpus().map_err(|(_, error)| error)? {
-        // open a separate perf buffer for each cpu
-        let mut network_tuple_buf = network_tuple.open(cpu_id, None)?;
-        let mut cgroup_info_buf = cgroup_info.open(cpu_id, None)?;
-        let mut delay_queue = tokio_util::time::DelayQueue::new();
-        let mut queue_map: Arc<Mutex<HashMap<u32, tokio_util::time::delay_queue::Key>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-        // process each perf buffer in a separate task
-        let o = task::spawn(async move {
-            let mut network_tuple_buffers = (0..10)
-                .map(|_| BytesMut::with_capacity(1024))
-                .collect::<Vec<_>>();
-            let mut cgroup_info_buffers = (0..10)
-                .map(|_| BytesMut::with_capacity(1024))
-                .collect::<Vec<_>>();
-
-            loop {
-                // wait for events
-
-                select! {
-                    Ok(events) = network_tuple_buf.read_events(&mut network_tuple_buffers) =>{
-                        for i in 0..events.read {
-                            let buf = &mut network_tuple_buffers[i];
-                            let tuple = unsafe { ptr::read_unaligned(buf.as_ptr() as *const NetworkTuple) };
-                            if let Some(key) = queue_map.lock().await.remove(&tuple.tag){
-                            if let Some(o) = delay_queue.try_remove(&key){
-                                dbg!(o.get_ref());
-                            }else{
-                                dbg!(tuple);
-                            }
-
-                            }else{
-                                dbg!(tuple);
-                            }
-                            dbg!(&queue_map);
-                            // if let Some(key) = key {
-                            //     let o = delay_queue.try_remove(key).unwrap();
-                            //     dbg!(o.get_ref());
-                            // }
-                        }
-                    }
-                    Ok(events) = cgroup_info_buf.read_events(&mut cgroup_info_buffers) =>{
-                        for i in 0..events.read {
-                            let buf = &mut cgroup_info_buffers[i];
-                            let cgroup_info = unsafe { ptr::read_unaligned(buf.as_ptr() as *const CgroupInfo) };
-                            dbg!(&cgroup_info);
-                            let key = delay_queue.insert(cgroup_info.tag, Duration::from_secs(1));
-                            queue_map.lock().await.insert(cgroup_info.tag,key);
-                            dbg!(&queue_map);
-                        }
-                    }
-                }
+    let mut o = AsyncPerfEventArrayStream::<NetworkTuple>::new(
+        ebpf.inner.take_map("NETWORK_TUPLE").unwrap(),
+    );
+    let mut c =
+        AsyncPerfEventArrayStream::<CgroupInfo>::new(ebpf.inner.take_map("CGROUP_INFO").unwrap());
+    loop {
+        select! {
+            Some(tuple) = o.next() => {
+                dbg!(tuple);
             }
-        });
-        dbg!(o);
+            Some(cgroup_info) = c.next() => {
+                dbg!(cgroup_info);
+            }
+        }
     }
-    // prog.attach(&map_fd)?;
-    println!("Hello, world!");
-    let ctrl_c = tokio::signal::ctrl_c();
-    println!("Waiting for Ctrl-C...");
-    ctrl_c.await?;
-    println!("Exiting...");
-    Ok(())
+    // let ctrl_c = tokio::signal::ctrl_c();
+    // println!("Waiting for Ctrl-C...");
+    // ctrl_c.await?;
+    // println!("Exiting...");
+    // Ok(())
 }
+
+pub struct AsyncPerfEventArrayStream<T> {
+    streams: stream::SelectAll<Pin<Box<dyn Stream<Item = T>>>>,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> AsyncPerfEventArrayStream<T> {
+    pub fn new(map: aya::maps::Map) -> Self {
+        let mut async_perf_event_array = AsyncPerfEventArray::try_from(map).unwrap();
+        let mut streams: Vec<Pin<Box<dyn Stream<Item = T>>>> = Vec::new();
+        for cpu_id in online_cpus().map_err(|(_, error)| error).unwrap() {
+            let async_perf_event_array_buffer = async_perf_event_array.open(cpu_id, None).unwrap();
+            let buf = (0..10)
+                .map(|_| BytesMut::with_capacity(1024))
+                .collect::<Vec<_>>();
+            streams.push(Box::pin(stream::unfold::<_, _, _, T>(
+                (async_perf_event_array_buffer, buf),
+                move |(mut async_perf_event_array_buffer, mut buf)| async {
+                    let events = async_perf_event_array_buffer
+                        .read_events(&mut buf)
+                        .await
+                        .unwrap();
+                    for i in 0..events.read {
+                        let b = &mut buf[i];
+                        let tuple = unsafe { ptr::read_unaligned(b.as_ptr() as *const T) };
+                        return Some((tuple, (async_perf_event_array_buffer, buf)));
+                    }
+                    None
+                },
+            )));
+        }
+        Self {
+            streams: select_all(streams),
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: std::marker::Unpin> futures::Stream for AsyncPerfEventArrayStream<T> {
+    type Item = T;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.streams.poll_next_unpin(cx)
+    }
+}
+
+pub struct ExpirableQueue {}
 
 const CGROUP_PATH: &str = "/sys/fs/cgroup";
 

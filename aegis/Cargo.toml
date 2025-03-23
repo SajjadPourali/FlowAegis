@@ -16,6 +16,7 @@ tokio = { workspace = true, features = [
     "io-util",
     "signal",
 ] }
+futures = { workspace = true, default-features = false, features = ["alloc"] }
 ebpf-common = { path = "../ebpf/common", features = ["user"] }
 bytes = { workspace = true }
 rlimit = { workspace = true }

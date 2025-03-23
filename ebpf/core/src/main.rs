@@ -10,7 +10,7 @@ use aya_ebpf::{
     programs::{SockAddrContext, SockOpsContext},
 };
 
-use aya_log_ebpf::info;
+// use aya_log_ebpf::info;
 
 use ebpf_common::{Action, CgroupInfo, MainProgramInfo, NetworkTuple, Rule};
 
@@ -28,7 +28,6 @@ pub static CGROUP_INFO: PerfEventArray<CgroupInfo> = PerfEventArray::new(0);
 
 #[cgroup_sock_addr(connect4)]
 pub fn connect4(ctx: SockAddrContext) -> i32 {
-    
     let Some(main_program_info) = MAIN_APP_INFO.get(0) else {
         return 1;
     };
