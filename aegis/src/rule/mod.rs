@@ -9,6 +9,8 @@ fn default<T: Default + PartialEq>(t: &T) -> bool {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Rule {
     pub action: Action,
+    // #[serde(skip_serializing_if = "default")]
+    // pub protocol: Protocol,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "default")]
     pub host: Host,
@@ -25,6 +27,12 @@ pub struct Rule {
     #[serde(skip_serializing_if = "default")]
     pub pid: Num,
 }
+// #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
+// pub enum Protocol {
+//     #[default]
+//     Tcp,
+//     Udp,
+// }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone, Copy)]
 pub enum Host {
@@ -59,7 +67,6 @@ impl<'de> Deserialize<'de> for Num {
             return Ok(Num::Singular(n));
         }
         if let Some((start, end)) = s.split_once('-').and_then(|(s, e)| {
-            dbg!(s);
             s.parse::<u32>()
                 .map_err(|e| {
                     if *e.kind() == IntErrorKind::Empty {

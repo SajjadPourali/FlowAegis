@@ -15,7 +15,7 @@ use aya_log_ebpf::info;
 use ebpf_common::{Action, CgroupInfo, MainProgramInfo, NetworkTuple, Rule};
 
 #[map]
-pub static RULES: Array<Rule> = Array::with_max_entries(256, 0);
+pub static TCP_RULES: Array<Rule> = Array::with_max_entries(256, 0);
 
 #[map]
 pub static MAIN_APP_INFO: Array<MainProgramInfo> = Array::with_max_entries(100, 0);
@@ -28,6 +28,7 @@ pub static CGROUP_INFO: PerfEventArray<CgroupInfo> = PerfEventArray::new(0);
 
 #[cgroup_sock_addr(connect4)]
 pub fn connect4(ctx: SockAddrContext) -> i32 {
+    
     let Some(main_program_info) = MAIN_APP_INFO.get(0) else {
         return 1;
     };
@@ -43,10 +44,10 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     let tag = unsafe {
         let tag = bpf_get_prandom_u32();
         aya_ebpf::helpers::r#gen::bpf_setsockopt(
-            ctx.sock_addr as *const _ as *mut core::ffi::c_void, // Cast the reference to a raw pointer
+            ctx.sock_addr as *const _ as *mut core::ffi::c_void,
             aya_ebpf::bindings::SOL_SOCKET as i32,
             aya_ebpf::bindings::SO_MARK as i32,
-            &tag as *const _ as *mut core::ffi::c_void, // Cast tag correctly
+            &tag as *const _ as *mut core::ffi::c_void,
             core::mem::size_of_val(&tag) as i32,
         );
         tag
@@ -57,7 +58,9 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     let mut rule_id = 0;
     let mut action = None;
     for i in 0..(main_program_info.number_of_active_rules).min(256) {
-        let Some(rule) = RULES.get(i) else { return 1 };
+        let Some(rule) = TCP_RULES.get(i) else {
+            return 1;
+        };
         if rule.host.matches_ipv4(dst_ip)
             && rule.port.matches(port as u32)
             && rule.uid.matches(uid)
@@ -84,7 +87,13 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     match action {
         Action::Deny => 0,
         Action::Allow => 1,
-        Action::Proxy => 1,
+        Action::Proxy => unsafe {
+            (*ctx.sock_addr).user_ip4 =
+                u32::from_ne_bytes(main_program_info.proxy_v4_address.ip().octets());
+            (*ctx.sock_addr).user_port =
+                main_program_info.proxy_v4_address.port().swap_bytes() as u32;
+            1
+        },
         Action::Forward => unsafe {
             (*ctx.sock_addr).user_ip4 =
                 u32::from_ne_bytes(main_program_info.forward_v4_address.ip().octets());
@@ -110,10 +119,10 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     let tag = unsafe {
         let tag = bpf_get_prandom_u32();
         aya_ebpf::helpers::r#gen::bpf_setsockopt(
-            ctx.sock_addr as *const _ as *mut core::ffi::c_void, // Cast the reference to a raw pointer
+            ctx.sock_addr as *const _ as *mut core::ffi::c_void,
             aya_ebpf::bindings::SOL_SOCKET as i32,
             aya_ebpf::bindings::SO_MARK as i32,
-            &tag as *const _ as *mut core::ffi::c_void, // Cast tag correctly
+            &tag as *const _ as *mut core::ffi::c_void,
             core::mem::size_of_val(&tag) as i32,
         );
         tag
@@ -124,7 +133,9 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     let mut rule_id = 0;
     let mut action = None;
     for i in 0..main_program_info.number_of_active_rules.min(256) {
-        let Some(rule) = RULES.get(i) else { return 1 };
+        let Some(rule) = TCP_RULES.get(i) else {
+            return 1;
+        };
         if rule.host.matches_ipv6(dst_ip)
             && rule.port.matches(port as u32)
             && rule.uid.matches(uid)
@@ -186,21 +197,21 @@ fn u128_to_u32_array(value: u128) -> [u32; 4] {
 
 #[sock_ops]
 pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
-    // if ctx.op() != 4 {
-    //     // BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB
-    //     return 0;
-    // }
+    if ctx.op() != 4 {
+        // BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB
+        return 0;
+    }
 
     let mut tag: u32 = 0;
     let tag_size = core::mem::size_of_val(&tag) as i32;
 
     unsafe {
         aya_ebpf::helpers::r#gen::bpf_getsockopt(
-            ctx.ops as *mut core::ffi::c_void, // Pass the socket context
+            ctx.ops as *mut core::ffi::c_void,
             aya_ebpf::bindings::SOL_SOCKET as i32,
-            aya_ebpf::bindings::SO_MARK as i32, // Retrieve SO_MARK value
-            &mut tag as *mut _ as *mut core::ffi::c_void, // Output buffer
-            tag_size,                           // Size of output
+            aya_ebpf::bindings::SO_MARK as i32,
+            &mut tag as *mut _ as *mut core::ffi::c_void,
+            tag_size,
         );
     }
     let remote_port = ctx.remote_port().swap_bytes();

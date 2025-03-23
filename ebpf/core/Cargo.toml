@@ -7,7 +7,6 @@ edition = "2024"
 aya-ebpf = { workspace = true }
 aya-log-ebpf = { workspace = true }
 ebpf-common = { path = "../common" }
-postcard = "1.1.1"
 # network-types = "0.0.7"
 [build-dependencies]
 which = { workspace = true }

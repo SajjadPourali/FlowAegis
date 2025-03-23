@@ -10,7 +10,5 @@ fn main() -> anyhow::Result<()> {
         .into_iter()
         .find(|cargo_metadata::Package { name, .. }| name == "ebpf-core")
         .ok_or_else(|| anyhow!("{{project-name}}-ebpf package not found"))?;
-        // .find(|cargo_metadata::Package { name, .. }| name == "{{project-name}}-ebpf")
-        // .ok_or_else(|| anyhow!("{{project-name}}-ebpf package not found"))?;
     aya_build::build_ebpf([ebpf_package])
 }

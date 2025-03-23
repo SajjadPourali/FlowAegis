@@ -5,11 +5,9 @@ edition = "2024"
 
 [dependencies]
 aya = { workspace = true, optional = true }
-serde = { version = "1.0", default-features = false, features = ["derive"] }
-heapless = "0.8.0"
-postcard = "1.1.1"
+serde = { workspace = true, default-features = false, features = ["derive"] }
 [lib]
 path = "src/lib.rs"
 
 [features]
-user = [ "aya" ]
+user = ["aya"]

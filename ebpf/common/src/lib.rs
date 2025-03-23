@@ -14,7 +14,7 @@
 //     pub const PROXY_IPV6_OCT4: u32 = 10;
 // }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct MainProgramInfo {
     pub uid: u32,
     pub pid: u32,

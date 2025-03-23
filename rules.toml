@@ -16,6 +16,7 @@ port = "1-1000"
 
 [rules.test2]
 action = "Forward"
+# action = "Proxy"
 Ip = ["1.1.1.1", 8]
 port = "1-1000"
 
