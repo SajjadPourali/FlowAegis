@@ -9,6 +9,11 @@ Ip = ["255.255.255.255", 8]
 port = "1-10"
 uid = "100"
 
+[rules.test7]
+action = "Forward"
+Ip = ["::1", 8]
+port = "1-1000"
+
 [rules.test2]
 action = "Forward"
 Ip = ["1.1.1.1", 8]

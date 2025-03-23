@@ -108,6 +108,7 @@ impl Host {
 pub struct NetworkTuple {
     pub src: SocketAddr,
     pub dst: SocketAddr,
+    pub tag: u32,
 }
 
 #[derive(Debug)]
@@ -118,4 +119,5 @@ pub struct CgroupInfo {
     pub pid: u32,
     pub tgid: u32,
     pub rule: u32,
+    pub tag: u32,
 }
