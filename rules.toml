@@ -1,6 +1,6 @@
-proxy_address_ipv4 = "127.0.0.1:80"
-forward_address_ipv4 = "142.250.69.142:80"
-proxy_address_ipv6 = "[::1]:80"
+proxy_address_ipv4 = "192.168.70.104:1080"
+forward_address_ipv4 = "127.0.0.1:8080"
+proxy_address_ipv6 = "[::1]:8080"
 forward_address_ipv6 = "[::1]:80"
 
 [rules.test]
@@ -15,8 +15,8 @@ Ip = ["::1", 8]
 port = "1-1000"
 
 [rules.test2]
-action = "Forward"
-# action = "Proxy"
+# action = "Forward"
+action = "Proxy"
 Ip = ["1.1.1.1", 8]
 port = "1-1000"
 

@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
-use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use core::{
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    u32,
+};
 
 use aya_ebpf::{
     EbpfContext,
@@ -54,8 +57,8 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     let port = (bpf_sock_addr.user_port as u16).swap_bytes();
     let uid = ctx.uid();
     let pid = ctx.pid();
-    let mut rule_id = 0;
-    let mut action = None;
+    let mut rule_id = u32::MAX;
+    let mut action = Action::Allow;
     for i in 0..(main_program_info.number_of_active_rules).min(256) {
         let Some(rule) = TCP_RULES.get(i) else {
             return 1;
@@ -65,13 +68,11 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
             && rule.uid.matches(uid)
             && rule.pid.matches(pid)
         {
-            action = Some(rule.action);
+            action = rule.action;
             rule_id = i;
             break;
         }
     }
-    let Some(action) = action else { return 1 };
-
     let cgroup_info = CgroupInfo {
         dst: SocketAddr::V4(SocketAddrV4::new(dst_ip, port as u16)),
         uid,
@@ -83,12 +84,15 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     };
 
     CGROUP_INFO.output(&ctx, &cgroup_info, 0);
+    // let Some(action) = action else { return 1 };
+
     match action {
         Action::Deny => 0,
         Action::Allow => 1,
         Action::Proxy => unsafe {
             (*ctx.sock_addr).user_ip4 =
                 u32::from_ne_bytes(main_program_info.proxy_v4_address.ip().octets());
+            // info!(&ctx, "{}", (*ctx.sock_addr).user_ip4);
             (*ctx.sock_addr).user_port =
                 main_program_info.proxy_v4_address.port().swap_bytes() as u32;
             1
@@ -96,6 +100,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         Action::Forward => unsafe {
             (*ctx.sock_addr).user_ip4 =
                 u32::from_ne_bytes(main_program_info.forward_v4_address.ip().octets());
+            // info!(&ctx, "{}", (*ctx.sock_addr).user_ip4);
             (*ctx.sock_addr).user_port =
                 main_program_info.forward_v4_address.port().swap_bytes() as u32;
             1
@@ -129,8 +134,8 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     let port = (bpf_sock_addr.user_port as u16).swap_bytes();
     let uid = ctx.uid();
     let pid = ctx.pid();
-    let mut rule_id = 0;
-    let mut action = None;
+    let mut rule_id = u32::MAX;
+    let mut action = Action::Allow;
     for i in 0..main_program_info.number_of_active_rules.min(256) {
         let Some(rule) = TCP_RULES.get(i) else {
             return 1;
@@ -140,13 +145,13 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
             && rule.uid.matches(uid)
             && rule.pid.matches(pid)
         {
-            action = Some(rule.action);
+            action = rule.action;
             rule_id = i;
             break;
         }
     }
 
-    let Some(action) = action else { return 1 };
+    // let Some(action) = action else { return 1 };
 
     let cgroup_info = CgroupInfo {
         dst: SocketAddr::V6(SocketAddrV6::new(dst_ip, port as u16, 0, 0)),
@@ -161,7 +166,16 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     match action {
         Action::Deny => 0,
         Action::Allow => 1,
-        Action::Proxy => 1,
+        Action::Proxy => unsafe {
+            let ipv6 = u128_to_u32_array(main_program_info.proxy_v6_address.ip().to_bits());
+            (*ctx.sock_addr).user_ip6[0] = ipv6[0].swap_bytes();
+            (*ctx.sock_addr).user_ip6[1] = ipv6[1].swap_bytes();
+            (*ctx.sock_addr).user_ip6[2] = ipv6[2].swap_bytes();
+            (*ctx.sock_addr).user_ip6[3] = ipv6[3].swap_bytes();
+            (*ctx.sock_addr).user_port =
+                main_program_info.proxy_v6_address.port().swap_bytes() as u32;
+            1
+        },
         Action::Forward => unsafe {
             let ipv6 = u128_to_u32_array(main_program_info.forward_v6_address.ip().to_bits());
             (*ctx.sock_addr).user_ip6[0] = ipv6[0].swap_bytes();

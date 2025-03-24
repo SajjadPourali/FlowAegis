@@ -30,6 +30,7 @@ dependencies = [
  "env_logger",
  "futures",
  "log",
+ "proxy-stream",
  "rlimit",
  "serde",
  "tokio",
@@ -570,6 +571,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a31971752e70b8b2686d7e46ec17fb38dad4051d94024c88df49b667caea9c84"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "proxy-stream"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c82005fea4a604e746fa7a8deb88c5d064895c2b29fa8a0678ef17d3e3db5c3"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]
