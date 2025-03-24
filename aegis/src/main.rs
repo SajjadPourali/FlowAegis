@@ -1,5 +1,6 @@
 use ebpf::Ebpf;
-use futures::StreamExt;
+use futures::{StreamExt, future};
+use log::warn;
 use network::async_forward;
 use proxy::Proxy;
 use proxy_stream::{ProxyStream, ProxyType};
@@ -12,7 +13,7 @@ use std::{
 use rule::Rule;
 
 use serde::{Deserialize, Serialize};
-use tokio::{io::AsyncReadExt, net::TcpStream, select};
+use tokio::{io::AsyncReadExt, net::TcpStream};
 mod ebpf;
 mod error;
 mod proxy;
@@ -30,15 +31,6 @@ mod network;
 
 #[tokio::main]
 async fn main() -> Result<(), error::AegisError> {
-    // let listener_4 = TcpListener::bind("127.0.0.1:0").await?;
-    // let listener_6 = TcpListener::bind("[::1]:0").await?;
-
-    // let Ok(SocketAddr::V4(proxy_address_ipv4)) = listener_4.local_addr() else {
-    //     return Ok(());
-    // };
-    // let Ok(SocketAddr::V6(proxy_address_ipv6)) = listener_6.local_addr() else {
-    //     return Ok(());
-    // };
     let mut proxy = Proxy::new(
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
         SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
@@ -62,46 +54,75 @@ async fn main() -> Result<(), error::AegisError> {
     ebpf.load_main_program_info();
     ebpf.load_cgroups();
 
-    let mut e = ebpf.get_event_stream();
+    let mut event_stream = ebpf.get_event_stream();
 
     let mut proxy_address_map = HashMap::new();
     let mut socket_address_map: HashMap<SocketAddr, TcpStream> = HashMap::new();
     loop {
-        select! {
-            Some(msg) = e.next() => {
-                if let Some(stream) = socket_address_map.remove(&msg.src){
+        match future::select(event_stream.next(), proxy.next()).await {
+            future::Either::Left((Some(msg), _)) => {
+                if let Some(stream) = socket_address_map.remove(&msg.src) {
                     let proxy_stream = ProxyStream::new(ProxyType::SOCKS5);
                     tokio::spawn(async move {
-                        let conn = if msg.dst.is_ipv4(){
-                            TcpStream::connect(config.proxy_address_ipv4).await.unwrap()
+                        let conn = if msg.dst.is_ipv4() {
+                            TcpStream::connect(config.proxy_address_ipv4).await
                         } else {
-                            TcpStream::connect(config.proxy_address_ipv6).await.unwrap()
+                            TcpStream::connect(config.proxy_address_ipv6).await
                         };
-                        let proxy_stream = proxy_stream.connect(conn, msg.dst).await.unwrap();
-                        async_forward(proxy_stream, stream).await.unwrap();
-
+                        let conn = match conn {
+                            Ok(conn) => conn,
+                            Err(e) => {
+                                warn!("{}", e);
+                                return ();
+                            }
+                        };
+                        let proxy_stream = match proxy_stream.connect(conn, msg.dst).await {
+                            Ok(proxy_stream) => proxy_stream,
+                            Err(e) => {
+                                warn!("{}", e);
+                                return ();
+                            }
+                        };
+                        if let Err(e) = async_forward(proxy_stream, stream).await {
+                            warn!("{}", e);
+                        }
                     });
                 } else {
                     proxy_address_map.insert(msg.src, msg.dst);
                 }
-
             }
-            Some(Ok((stream,addr))) = proxy.next() =>{
-                if let Some(dst) = proxy_address_map.remove(&addr){
+            future::Either::Right((Some(Ok((stream, addr))), _)) => {
+                if let Some(dst) = proxy_address_map.remove(&addr) {
                     let proxy_stream = ProxyStream::new(ProxyType::SOCKS5);
                     tokio::spawn(async move {
-                        let conn = if addr.ip().is_ipv4(){
-                            TcpStream::connect(config.proxy_address_ipv4).await.unwrap()
+                        let conn = if addr.ip().is_ipv4() {
+                            TcpStream::connect(config.proxy_address_ipv4).await
                         } else {
-                            TcpStream::connect(config.proxy_address_ipv6).await.unwrap()
+                            TcpStream::connect(config.proxy_address_ipv6).await
                         };
-                        let proxy_stream = proxy_stream.connect(conn, dst).await.unwrap();
-                        async_forward(proxy_stream, stream).await.unwrap();
+                        let conn = match conn {
+                            Ok(conn) => conn,
+                            Err(e) => {
+                                warn!("{}", e);
+                                return ();
+                            }
+                        };
+                        let proxy_stream = match proxy_stream.connect(conn, dst).await {
+                            Ok(proxy_stream) => proxy_stream,
+                            Err(e) => {
+                                warn!("{}", e);
+                                return ();
+                            }
+                        };
+                        if let Err(e) = async_forward(proxy_stream, stream).await {
+                            warn!("{}", e);
+                        }
                     });
                 } else {
                     socket_address_map.insert(addr, stream);
                 }
             }
+            _ => {}
         }
     }
 }
