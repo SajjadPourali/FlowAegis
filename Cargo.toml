@@ -22,6 +22,7 @@ log = { version = "0.4.26", default-features = false }
 tokio-util = { version = "0.7.14", default-features = false }
 futures = { version = "0.3.31", default-features = false }
 proxy-stream = {version = "0.0.2",default-features = false}
+thiserror = {version = "2.0",default-features = false}
 [profile.release.package.ebpf-core]
 debug = 2
 codegen-units = 1

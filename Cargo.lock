@@ -33,6 +33,7 @@ dependencies = [
  "proxy-stream",
  "rlimit",
  "serde",
+ "thiserror 2.0.12",
  "tokio",
  "tokio-util",
  "toml",
