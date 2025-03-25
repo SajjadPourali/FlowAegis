@@ -142,10 +142,22 @@ impl From<Host> for ebpf_common::Host {
         match v {
             Host::Ip(ip_addr, subnet_len) => match ip_addr {
                 IpAddr::V4(ipv4) => {
-                    ebpf_common::Host::Ipv4(u32::from(ipv4), !((1u32 << (32 - subnet_len)) - 1))
+                    let ip = u32::from_be_bytes(ipv4.octets());
+                    let mask = if subnet_len == 0 {
+                        0
+                    } else {
+                        !((1u32 << (32 - subnet_len)) - 1)
+                    };
+                    ebpf_common::Host::Ipv4(ip, mask)
                 }
                 IpAddr::V6(ipv6) => {
-                    ebpf_common::Host::Ipv6(u128::from(ipv6), !((1u128 << (128 - subnet_len)) - 1))
+                    let ip = u128::from_be_bytes(ipv6.octets());
+                    let mask = if subnet_len == 0 {
+                        0
+                    } else {
+                        !((1u128 << (128 - subnet_len)) - 1)
+                    };
+                    ebpf_common::Host::Ipv6(ip, mask)
                 }
             },
             Host::Any => ebpf_common::Host::Any,

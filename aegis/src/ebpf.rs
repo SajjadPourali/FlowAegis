@@ -1,15 +1,25 @@
-use std::{collections::HashMap, net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6}, pin::Pin, ptr};
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    pin::Pin,
+    ptr,
+};
 
-use aya::{maps::AsyncPerfEventArray, programs::{CgroupAttachMode, CgroupSockAddr, SockOps}, util::online_cpus};
+use aya::{
+    maps::AsyncPerfEventArray,
+    programs::{CgroupAttachMode, CgroupSockAddr, SockOps},
+    util::online_cpus,
+};
 use bytes::BytesMut;
 use ebpf_common::{Action, CgroupInfo, MainProgramInfo, NetworkTuple};
 use futures::{
-    stream::{self, select_all}, Stream, StreamExt
+    Stream, StreamExt,
+    stream::{self, select_all},
 };
 
 use crate::error;
 
-
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct EbpfMessage {
     pub action: EbpfMessageAction,
@@ -23,12 +33,12 @@ pub struct EbpfMessage {
 
 #[derive(Debug)]
 pub enum EbpfMessageAction {
-    Allow(u32, String),
-    Deny(u32, String),
-    Forward(u32, String),
-    Proxy(u32, String),
+    Allow(String),
+    Deny(String),
+    Forward(String),
+    Proxy(String),
     Missed,
-    Interrupted(u32, String),
+    Interrupted(String),
 }
 pub struct EbpfMessageStream {
     rules: Vec<(std::string::String, Action)>,
@@ -75,23 +85,15 @@ impl Stream for EbpfMessageStream {
                         let tgid: u32 = info.tgid;
                         let dst = info.dst;
                         let action = if info.rule == u32::MAX {
-                            EbpfMessageAction::Allow(info.rule, "Default".to_string())
+                            EbpfMessageAction::Allow("Default".to_string())
                         } else {
                             let (rule_name, rule_action) =
                                 self.rules.get(info.rule as usize).unwrap();
                             match rule_action {
-                                Action::Allow => {
-                                    EbpfMessageAction::Allow(info.rule, rule_name.to_owned())
-                                }
-                                Action::Deny => {
-                                    EbpfMessageAction::Deny(info.rule, rule_name.to_owned())
-                                }
-                                Action::Forward => {
-                                    EbpfMessageAction::Forward(info.rule, rule_name.to_owned())
-                                }
-                                Action::Proxy => {
-                                    EbpfMessageAction::Proxy(info.rule, rule_name.to_owned())
-                                }
+                                Action::Allow => EbpfMessageAction::Allow(rule_name.to_owned()),
+                                Action::Deny => EbpfMessageAction::Deny(rule_name.to_owned()),
+                                Action::Forward => EbpfMessageAction::Forward(rule_name.to_owned()),
+                                Action::Proxy => EbpfMessageAction::Proxy(rule_name.to_owned()),
                             }
                         };
 
@@ -137,7 +139,7 @@ impl Stream for EbpfMessageStream {
             };
 
             return std::task::Poll::Ready(Some(EbpfMessage {
-                action: EbpfMessageAction::Interrupted(expired.rule, rule_name.to_string()),
+                action: EbpfMessageAction::Interrupted(rule_name.to_string()),
                 src,
                 dst,
                 uid,
@@ -207,7 +209,7 @@ pub struct Ebpf {
 }
 
 impl Ebpf {
-    pub fn new() -> Result<Self,error::AegisError> {
+    pub fn new() -> Result<Self, error::AegisError> {
         let ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
             env!("OUT_DIR"),
             "/ebpf"
@@ -266,13 +268,13 @@ impl Ebpf {
         for (index, (r_name, r)) in rules.into_iter().enumerate() {
             let r = ebpf_common::Rule::from(r);
             self.rule_names.push((r_name, r.action));
-            tcp_rules.set(index as u32, &r, 0).unwrap();
+            tcp_rules.set(index as u32, r, 0).unwrap();
         }
         self.main_program_info.number_of_active_rules = self.rule_names.len() as u32;
     }
     pub fn load_cgroups(&mut self) {
         let cgroup = std::fs::File::open(CGROUP_PATH).unwrap();
-        for prog in vec!["connect4", "connect6"] {
+        for prog in ["connect4", "connect6"] {
             //, "bpf_sockops"
             let program: &mut CgroupSockAddr =
                 self.inner.program_mut(prog).unwrap().try_into().unwrap();

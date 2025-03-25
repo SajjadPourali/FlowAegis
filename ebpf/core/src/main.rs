@@ -1,9 +1,6 @@
 #![no_std]
 #![no_main]
-use core::{
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
-    u32,
-};
+use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 use aya_ebpf::{
     EbpfContext,
@@ -36,6 +33,8 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     };
 
     let bpf_sock_addr = unsafe { *ctx.sock_addr };
+    let uid = ctx.uid();
+    let pid = ctx.pid();
     if bpf_sock_addr.protocol != 6 {
         // TCP
         return 1;
@@ -44,7 +43,11 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
 
     // Tagging the socket with the tag value
     let tag = unsafe {
-        let tag = bpf_get_prandom_u32();
+        let tag = if main_program_info.uid == uid {
+            u32::MAX
+        } else {
+            bpf_get_prandom_u32()
+        };
         aya_ebpf::helpers::r#gen::bpf_setsockopt(
             ctx.sock_addr as *const _ as *mut core::ffi::c_void,
             aya_ebpf::bindings::SOL_SOCKET as i32,
@@ -54,9 +57,11 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         );
         tag
     };
+    if tag == u32::MAX {
+        return 1;
+    }
     let port = (bpf_sock_addr.user_port as u16).swap_bytes();
-    let uid = ctx.uid();
-    let pid = ctx.pid();
+
     let mut rule_id = u32::MAX;
     let mut action = Action::Allow;
     for i in 0..(main_program_info.number_of_active_rules).min(256) {
@@ -74,7 +79,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         }
     }
     let cgroup_info = CgroupInfo {
-        dst: SocketAddr::V4(SocketAddrV4::new(dst_ip, port as u16)),
+        dst: SocketAddr::V4(SocketAddrV4::new(dst_ip, port)),
         uid,
         gid: ctx.gid(),
         pid,
@@ -113,15 +118,23 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     let Some(main_program_info) = MAIN_APP_INFO.get(0) else {
         return 1;
     };
+
     let bpf_sock_addr = unsafe { *ctx.sock_addr };
+    let uid = ctx.uid();
+    let pid = ctx.pid();
     if bpf_sock_addr.protocol != 6 {
         // TCP
         return 1;
     }
+
     let dst_ip = Ipv6Addr::from_bits(u32_array_to_u128(bpf_sock_addr.user_ip6));
     // Tagging the socket with the tag value
     let tag = unsafe {
-        let tag = bpf_get_prandom_u32();
+        let tag = if main_program_info.uid == uid {
+            u32::MAX
+        } else {
+            bpf_get_prandom_u32()
+        };
         aya_ebpf::helpers::r#gen::bpf_setsockopt(
             ctx.sock_addr as *const _ as *mut core::ffi::c_void,
             aya_ebpf::bindings::SOL_SOCKET as i32,
@@ -131,9 +144,10 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
         );
         tag
     };
+    if tag == u32::MAX {
+        return 1;
+    }
     let port = (bpf_sock_addr.user_port as u16).swap_bytes();
-    let uid = ctx.uid();
-    let pid = ctx.pid();
     let mut rule_id = u32::MAX;
     let mut action = Action::Allow;
     for i in 0..main_program_info.number_of_active_rules.min(256) {
@@ -154,7 +168,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     // let Some(action) = action else { return 1 };
 
     let cgroup_info = CgroupInfo {
-        dst: SocketAddr::V6(SocketAddrV6::new(dst_ip, port as u16, 0, 0)),
+        dst: SocketAddr::V6(SocketAddrV6::new(dst_ip, port, 0, 0)),
         uid,
         gid: ctx.gid(),
         pid,
@@ -191,9 +205,9 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
 
 #[inline(always)]
 fn u32_array_to_u128(arr: [u32; 4]) -> u128 {
-    (arr[0].swap_bytes() as u128) << 96
-        | (arr[1].swap_bytes() as u128) << 64
-        | (arr[2].swap_bytes() as u128) << 32
+    ((arr[0].swap_bytes() as u128) << 96)
+        | ((arr[1].swap_bytes() as u128) << 64)
+        | ((arr[2].swap_bytes() as u128) << 32)
         | (arr[3].swap_bytes() as u128)
     // (arr[3] as u128) << 96 | (arr[2] as u128) << 64 | (arr[1] as u128) << 32 | (arr[0] as u128)
 }
@@ -226,6 +240,9 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
             &mut tag as *mut _ as *mut core::ffi::c_void,
             tag_size,
         );
+    }
+    if tag == u32::MAX {
+        return 1;
     }
     let remote_port = ctx.remote_port().swap_bytes();
     let local_port = ctx.local_port();

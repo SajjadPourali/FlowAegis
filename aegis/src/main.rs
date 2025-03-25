@@ -1,4 +1,4 @@
-use ebpf::Ebpf;
+use ebpf::{Ebpf, EbpfMessageAction};
 use futures::{StreamExt, future};
 use log::warn;
 use network::async_forward;
@@ -40,7 +40,7 @@ async fn main() -> Result<(), error::AegisError> {
     env_logger::init();
     log::info!("starting up");
 
-    let mut config_file = tokio::fs::File::open("rules.toml").await?;
+    let mut config_file = tokio::fs::File::open("config.toml").await?;
     let mut rules = String::new();
     config_file.read_to_string(&mut rules).await?;
     let config: Config = toml::from_str(&rules)?;
@@ -61,6 +61,61 @@ async fn main() -> Result<(), error::AegisError> {
     loop {
         match future::select(event_stream.next(), proxy.next()).await {
             future::Either::Left((Some(msg), _)) => {
+                match &msg.action {
+                    EbpfMessageAction::Allow(rname) => {
+                        log::info!(
+                            "Connection Allowed - src={} dst={} uid={} pid={} rule={}",
+                            msg.src,
+                            msg.dst,
+                            msg.uid,
+                            msg.pid,
+                            rname
+                        );
+                    }
+                    EbpfMessageAction::Deny(rname) => {
+                        log::info!(
+                            "Connection Denined - src={} dst={} uid={} pid={} rule={}",
+                            msg.src,
+                            msg.dst,
+                            msg.uid,
+                            msg.pid,
+                            rname
+                        );
+                    }
+                    EbpfMessageAction::Forward(rname) => {
+                        log::info!(
+                            "Connection Forwarded - src={} dst={} uid={} pid={} rule={}",
+                            msg.src,
+                            msg.dst,
+                            msg.uid,
+                            msg.pid,
+                            rname
+                        );
+                    }
+                    EbpfMessageAction::Proxy(rname) => {
+                        log::info!(
+                            "Connection Proxied - src={} dst={} uid={} pid={} rule={}",
+                            msg.src,
+                            msg.dst,
+                            msg.uid,
+                            msg.pid,
+                            rname
+                        );
+                    }
+                    EbpfMessageAction::Missed => {
+                        log::info!("Connection Missed - src={} dst={}", msg.src, msg.dst,);
+                    }
+                    EbpfMessageAction::Interrupted(rname) => {
+                        log::info!(
+                            "Connection Interrupted - src={} dst={} uid={} pid={} rule={}",
+                            msg.src,
+                            msg.dst,
+                            msg.uid,
+                            msg.pid,
+                            rname
+                        );
+                    }
+                };
                 if let Some(stream) = socket_address_map.remove(&msg.src) {
                     let proxy_stream = ProxyStream::new(ProxyType::SOCKS5);
                     tokio::spawn(async move {
