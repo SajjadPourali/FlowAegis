@@ -43,9 +43,9 @@ pub enum EbpfMessageAction {
 pub struct EbpfMessageStream {
     rules: Vec<(std::string::String, Action)>,
     network_tuple_stream: AsyncPerfEventArrayStream<NetworkTuple>,
-    cgroup_info_stream: AsyncPerfEventArrayStream<CgroupInfo>,
+    // cgroup_info_stream: AsyncPerfEventArrayStream<CgroupInfo>,
     delay_queue: tokio_util::time::DelayQueue<CgroupInfo>,
-    queue_map: HashMap<u32, tokio_util::time::delay_queue::Key>,
+    // queue_map: HashMap<u32, tokio_util::time::delay_queue::Key>,
 }
 
 impl Stream for EbpfMessageStream {
@@ -55,69 +55,86 @@ impl Stream for EbpfMessageStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        if let std::task::Poll::Ready(cgroup_info) = self.cgroup_info_stream.poll_next_unpin(cx) {
-            match cgroup_info {
-                Some(cgroup_info) => {
-                    let tag = cgroup_info.tag;
-                    let key = self
-                        .delay_queue
-                        .insert(cgroup_info, std::time::Duration::from_secs(1));
-                    self.queue_map.insert(tag, key);
-                }
-                None => return std::task::Poll::Ready(None),
-            }
-        }
+        // if let std::task::Poll::Ready(cgroup_info) = self.cgroup_info_stream.poll_next_unpin(cx) {
+        //     match cgroup_info {
+        //         Some(cgroup_info) => {
+        //             let tag = cgroup_info.tag;
+        //             let key = self
+        //                 .delay_queue
+        //                 .insert(cgroup_info, std::time::Duration::from_secs(1));
+        //             self.queue_map.insert(tag, key);
+        //         }
+        //         None => return std::task::Poll::Ready(None),
+        //     }
+        // }
         if let std::task::Poll::Ready(network_tuple) = self.network_tuple_stream.poll_next_unpin(cx)
         {
             match network_tuple {
                 Some(network_tuple) => {
-                    let src = network_tuple.src;
-                    let tag = network_tuple.tag;
-                    if let Some(info) = self
-                        .queue_map
-                        .remove(&tag)
-                        .and_then(|key| self.delay_queue.try_remove(&key))
-                    {
-                        let info = info.into_inner();
-                        let uid: u32 = info.uid;
-                        let gid: u32 = info.gid;
-                        let pid: u32 = info.pid;
-                        let tgid: u32 = info.tgid;
-                        let dst = info.dst;
-                        let action = if info.rule == u32::MAX {
-                            EbpfMessageAction::Allow("Default".to_string())
-                        } else {
-                            let (rule_name, rule_action) =
-                                self.rules.get(info.rule as usize).unwrap();
-                            match rule_action {
-                                Action::Allow => EbpfMessageAction::Allow(rule_name.to_owned()),
-                                Action::Deny => EbpfMessageAction::Deny(rule_name.to_owned()),
-                                Action::Forward => EbpfMessageAction::Forward(rule_name.to_owned()),
-                                Action::Proxy => EbpfMessageAction::Proxy(rule_name.to_owned()),
-                            }
-                        };
+                    let (rule_name, rule_action) =
+                        self.rules.get(network_tuple.rule as usize).unwrap();
+                    // match ;
+                    return std::task::Poll::Ready(Some(EbpfMessage {
+                        action: match rule_action {
+                            Action::Allow => EbpfMessageAction::Allow(rule_name.to_owned()),
+                            Action::Deny => EbpfMessageAction::Deny(rule_name.to_owned()),
+                            Action::Forward => EbpfMessageAction::Forward(rule_name.to_owned()),
+                            Action::Proxy => EbpfMessageAction::Proxy(rule_name.to_owned()),
+                        },
+                        src: network_tuple.src.to_socket_addr(),//: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+                        dst: network_tuple.actual_dst.to_socket_addr(),//,SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+                        uid: network_tuple.uid,
+                        gid: network_tuple.gid,
+                        pid: network_tuple.pid,
+                        tgid: network_tuple.tgid,
+                    }));
+                    // let src = network_tuple.src;
+                    // let tag = network_tuple.tag;
+                    // if let Some(info) = self
+                    //     .queue_map
+                    //     .remove(&tag)
+                    //     .and_then(|key| self.delay_queue.try_remove(&key))
+                    // {
+                    //     let info = info.into_inner();
+                    //     let uid: u32 = info.uid;
+                    //     let gid: u32 = info.gid;
+                    //     let pid: u32 = info.pid;
+                    //     let tgid: u32 = info.tgid;
+                    //     let dst = info.dst.to_socket_addr();
+                    //     let action = if info.rule == u32::MAX {
+                    //         EbpfMessageAction::Allow("Default".to_string())
+                    //     } else {
+                    //         let (rule_name, rule_action) =
+                    //             self.rules.get(info.rule as usize).unwrap();
+                    //         match rule_action {
+                    //             Action::Allow => EbpfMessageAction::Allow(rule_name.to_owned()),
+                    //             Action::Deny => EbpfMessageAction::Deny(rule_name.to_owned()),
+                    //             Action::Forward => EbpfMessageAction::Forward(rule_name.to_owned()),
+                    //             Action::Proxy => EbpfMessageAction::Proxy(rule_name.to_owned()),
+                    //         }
+                    //     };
 
-                        return std::task::Poll::Ready(Some(EbpfMessage {
-                            action,
-                            src,
-                            dst,
-                            uid,
-                            gid,
-                            pid,
-                            tgid,
-                        }));
-                    } else {
-                        let dst = network_tuple.dst;
-                        return std::task::Poll::Ready(Some(EbpfMessage {
-                            action: EbpfMessageAction::Missed,
-                            src,
-                            dst,
-                            uid: 0,
-                            gid: 0,
-                            pid: 0,
-                            tgid: 0,
-                        }));
-                    }
+                    //     return std::task::Poll::Ready(Some(EbpfMessage {
+                    //         action,
+                    //         src,
+                    //         dst,
+                    //         uid,
+                    //         gid,
+                    //         pid,
+                    //         tgid,
+                    //     }));
+                    // } else {
+                    //     let dst = network_tuple.dst;
+                    //     return std::task::Poll::Ready(Some(EbpfMessage {
+                    //         action: EbpfMessageAction::Missed,
+                    //         src,
+                    //         dst,
+                    //         uid: 0,
+                    //         gid: 0,
+                    //         pid: 0,
+                    //         tgid: 0,
+                    //     }));
+                    // }
                 }
                 None => return std::task::Poll::Ready(None),
             }
@@ -129,7 +146,7 @@ impl Stream for EbpfMessageStream {
             let gid: u32 = expired.gid;
             let pid: u32 = expired.pid;
             let tgid: u32 = expired.tgid;
-            let dst = expired.dst;
+            let dst = expired.dst.to_socket_addr();
 
             let rule_name = if expired.rule == u32::MAX {
                 "Default"
@@ -227,6 +244,7 @@ impl Ebpf {
             rlimit::INFINITY,
         )
         .unwrap();
+        // ulimit -l unlimited
 
         // let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
         Ok(Self {
@@ -275,7 +293,6 @@ impl Ebpf {
     pub fn load_cgroups(&mut self) {
         let cgroup = std::fs::File::open(CGROUP_PATH).unwrap();
         for prog in ["connect4", "connect6"] {
-            //, "bpf_sockops"
             let program: &mut CgroupSockAddr =
                 self.inner.program_mut(prog).unwrap().try_into().unwrap();
 
@@ -293,16 +310,17 @@ impl Ebpf {
         program.attach(&cgroup, CgroupAttachMode::Single).unwrap();
     }
     pub fn get_event_stream(&mut self) -> EbpfMessageStream {
+        // self.inner.take_map("SOCKET_MARK_MAP").unwrap();
         EbpfMessageStream {
             rules: self.rule_names.clone(),
             network_tuple_stream: AsyncPerfEventArrayStream::<NetworkTuple>::new(
                 self.inner.take_map("NETWORK_TUPLE").unwrap(),
             ),
-            cgroup_info_stream: AsyncPerfEventArrayStream::<CgroupInfo>::new(
-                self.inner.take_map("CGROUP_INFO").unwrap(),
-            ),
+            // cgroup_info_stream: AsyncPerfEventArrayStream::<CgroupInfo>::new(
+            //     self.inner.take_map("CGROUP_INFO").unwrap(),
+            // ),
             delay_queue: Default::default(),
-            queue_map: Default::default(),
+            // queue_map: Default::default(),
         }
     }
 }

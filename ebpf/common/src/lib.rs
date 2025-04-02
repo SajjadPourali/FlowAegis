@@ -27,7 +27,10 @@ pub struct MainProgramInfo {
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for MainProgramInfo {}
 
-use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+#[cfg(feature = "user")]
+use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+
+use core::net::{SocketAddrV4, SocketAddrV6};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default)]
@@ -79,45 +82,93 @@ pub enum Host {
 }
 
 impl Host {
-    pub fn matches_ipv4(&self, ipv4: Ipv4Addr) -> bool {
+    pub fn matches_ipv4(&self, ipv4: SocketAddrCompat) -> bool {
+        if ipv4.is_ipv6 && ipv4.ip[2] != u32::MAX {
+            return false;
+        };
         match self {
             Host::Any => true,
             Host::Ipv4(ip, mask) => {
                 let ip = ip.to_be();
                 let mask = mask.to_be();
-                let ipv4 = ipv4.to_bits().to_be();
+                let ipv4 = ipv4.ip[3];
                 (ip & mask) == (ipv4 & mask)
             }
             Host::Ipv6(_, _) => false,
         }
     }
-    pub fn matches_ipv6(&self, ipv6: Ipv6Addr) -> bool {
+    pub fn matches_ipv6(&self, ipv6: SocketAddrCompat) -> bool {
+        if ipv6.is_ipv6 == false {
+            return false;
+        };
+
         match self {
             Host::Any => true,
             Host::Ipv4(_, _) => false,
             Host::Ipv6(ip, mask) => {
                 let ip = ip.to_be();
                 let mask = mask.to_be();
-                let ipv6 = ipv6.to_bits().to_be();
+                // let ipv6 = ipv6.to_bits().to_be();
+                let ipv6 = (((ipv6.ip[0] as u128) << 96)
+                    | ((ipv6.ip[1] as u128) << 64)
+                    | ((ipv6.ip[2] as u128) << 32)
+                    | (ipv6.ip[3] as u128))
+                    .to_be();
                 (ip & mask) == (ipv6 & mask)
             }
         }
     }
 }
-#[derive(Debug)]
+#[repr(C, packed)]
 pub struct NetworkTuple {
-    pub src: SocketAddr,
-    pub dst: SocketAddr,
-    pub tag: u32,
+    pub src: SocketAddrCompat,
+    pub dst: SocketAddrCompat,
+    pub actual_dst: SocketAddrCompat,
+    pub uid: u32,
+    pub gid: u32,
+    pub pid: u32,
+    pub tgid: u32,
+    pub rule: u32,
 }
 
-#[derive(Debug)]
 pub struct CgroupInfo {
-    pub dst: SocketAddr,
+    pub dst: SocketAddrCompat,
     pub uid: u32,
     pub gid: u32,
     pub pid: u32,
     pub tgid: u32,
     pub rule: u32,
     pub tag: u32,
+}
+
+#[repr(C, packed)]
+#[derive(Copy, Clone)]
+pub struct SocketAddrCompat {
+    pub ip: [u32; 4],
+    pub port: u16,
+    pub is_ipv6: bool,
+}
+
+#[cfg(feature = "user")]
+impl SocketAddrCompat {
+    pub fn to_socket_addr(&self) -> SocketAddr {
+        if self.is_ipv6 {
+            SocketAddr::V6(SocketAddrV6::new(
+                Ipv6Addr::from_bits(
+                    ((self.ip[0] as u128) << 96)
+                        | ((self.ip[1] as u128) << 64)
+                        | ((self.ip[2] as u128) << 32)
+                        | (self.ip[3] as u128),
+                ),
+                self.port,
+                0,
+                0,
+            ))
+        } else {
+            return SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::from_bits(self.ip[3]),
+                self.port,
+            ));
+        }
+    }
 }
