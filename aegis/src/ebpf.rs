@@ -71,6 +71,7 @@ impl Stream for EbpfMessageStream {
         {
             match network_tuple {
                 Some(network_tuple) => {
+                    
                     let (rule_name, rule_action) =
                         self.rules.get(network_tuple.rule as usize).unwrap();
                     // match ;
@@ -291,9 +292,12 @@ impl Ebpf {
         self.main_program_info.number_of_active_rules = self.rule_names.len() as u32;
     }
     pub fn load_cgroups(&mut self) {
-        let program: &mut TracePoint = self.inner.program_mut("sys_enter_execve").unwrap().try_into().unwrap();
+        let program: &mut TracePoint = self.inner.program_mut("sched_process_exec").unwrap().try_into().unwrap();
         program.load().unwrap();
-        program.attach("syscalls", "sys_enter_execve").unwrap();
+        program.attach("sched", "sched_process_exec").unwrap();
+        let program: &mut TracePoint = self.inner.program_mut("sched_process_exit").unwrap().try_into().unwrap();
+        program.load().unwrap();
+        program.attach("sched", "sched_process_exit").unwrap();
         
         let cgroup = std::fs::File::open(CGROUP_PATH).unwrap();
         for prog in ["connect4", "connect6"] {

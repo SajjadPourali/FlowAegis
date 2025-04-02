@@ -3,10 +3,7 @@
 
 use aya_ebpf::{
     EbpfContext,
-    helpers::{
-        bpf_probe_read_kernel_str_bytes, bpf_probe_read_str, bpf_probe_read_user_str_bytes,
-        r#gen::bpf_get_prandom_u32,
-    },
+    helpers::{bpf_probe_read_kernel_str_bytes, r#gen::bpf_get_prandom_u32},
     macros::{cgroup_sock_addr, map, sock_ops, tracepoint},
     maps::{Array, LruHashMap, PerfEventArray},
     programs::{SockAddrContext, SockOpsContext, TracePointContext},
@@ -365,26 +362,40 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
     0
 }
 
-// sys_enter_execve
 #[tracepoint]
-pub fn sys_enter_execve(ctx: TracePointContext) -> u32 {
+pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
     unsafe {
-        // Fix: Read argument 0 (filename)
-        if let Ok(filename_ptr) = ctx.read_at::<*const u8>(16) {
-            let mut buffer = [0u8; 128]; // Larger buffer to store the full path
-
-            // Read user-space string safely
-            match bpf_probe_read_user_str_bytes(filename_ptr, &mut buffer) {
+        if let Ok(filename_offset) = ctx.read_at::<u8>(8) {
+            let filename_ptr = ctx.as_ptr().offset(filename_offset as isize) as *const u8;
+            let mut buffer = [0u8; 256];
+            match bpf_probe_read_kernel_str_bytes(filename_ptr, &mut buffer) {
                 Ok(bytes_read) => {
-                    let o = core::str::from_utf8_unchecked(&bytes_read[0..128]);
-                    info!(&ctx, "Executed binary: {}", o);
+                    let filename = core::str::from_utf8_unchecked(&bytes_read);
+                    info!(&ctx, "Executed binary: {}", filename);
                 }
                 Err(e) => {
                     info!(&ctx, "Error reading filename: {}", e);
                 }
             }
         } else {
-            info!(&ctx, "Failed to read filename pointer");
+            info!(&ctx, "Failed to read filename offset");
+        }
+        if let Ok(pid) = ctx.read_at::<i32>(12) {
+            info!(&ctx, "enter PID: {}", pid);
+        } else {
+            info!(&ctx, "Failed to read PID");
+        }
+    }
+    0
+}
+
+#[tracepoint]
+pub fn sched_process_exit(ctx: TracePointContext) -> u32 {
+    unsafe {
+        if let Ok(pid) = ctx.read_at::<i32>(24) {
+            info!(&ctx, "exit PID: {}", pid);
+        } else {
+            info!(&ctx, "Failed to read PID");
         }
     }
 

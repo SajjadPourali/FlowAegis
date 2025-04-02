@@ -10,6 +10,7 @@ ebpf-common = { path = "../common" }
 # network-types = "0.0.7"
 [build-dependencies]
 which = { workspace = true }
+# aya-tool = { git = "https://github.com/aya-rs/aya", branch = "main" }
 
 [[bin]]
 name = "ebpf"
