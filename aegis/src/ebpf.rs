@@ -7,7 +7,7 @@ use std::{
 
 use aya::{
     maps::AsyncPerfEventArray,
-    programs::{CgroupAttachMode, CgroupSockAddr, SockOps},
+    programs::{CgroupAttachMode, CgroupSockAddr, SockOps, TracePoint},
     util::online_cpus,
 };
 use bytes::BytesMut;
@@ -227,7 +227,7 @@ pub struct Ebpf {
 
 impl Ebpf {
     pub fn new() -> Result<Self, error::AegisError> {
-        let ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
+        let mut ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
             env!("OUT_DIR"),
             "/ebpf"
         )))
@@ -246,7 +246,7 @@ impl Ebpf {
         .unwrap();
         // ulimit -l unlimited
 
-        // let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
+        let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
         Ok(Self {
             inner: ebpf,
             main_program_info: MainProgramInfo {
@@ -291,6 +291,10 @@ impl Ebpf {
         self.main_program_info.number_of_active_rules = self.rule_names.len() as u32;
     }
     pub fn load_cgroups(&mut self) {
+        let program: &mut TracePoint = self.inner.program_mut("sys_enter_execve").unwrap().try_into().unwrap();
+        program.load().unwrap();
+        program.attach("syscalls", "sys_enter_execve").unwrap();
+        
         let cgroup = std::fs::File::open(CGROUP_PATH).unwrap();
         for prog in ["connect4", "connect6"] {
             let program: &mut CgroupSockAddr =

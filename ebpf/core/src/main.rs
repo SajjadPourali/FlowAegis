@@ -3,13 +3,16 @@
 
 use aya_ebpf::{
     EbpfContext,
-    helpers::r#gen::bpf_get_prandom_u32,
-    macros::{cgroup_sock_addr, map, sock_ops},
+    helpers::{
+        bpf_probe_read_kernel_str_bytes, bpf_probe_read_str, bpf_probe_read_user_str_bytes,
+        r#gen::bpf_get_prandom_u32,
+    },
+    macros::{cgroup_sock_addr, map, sock_ops, tracepoint},
     maps::{Array, LruHashMap, PerfEventArray},
-    programs::{SockAddrContext, SockOpsContext},
+    programs::{SockAddrContext, SockOpsContext, TracePointContext},
 };
 
-// use aya_log_ebpf::info;
+use aya_log_ebpf::info;
 
 use ebpf_common::{Action, CgroupInfo, MainProgramInfo, NetworkTuple, Rule, SocketAddrCompat};
 
@@ -359,6 +362,32 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
         },
         0,
     );
+    0
+}
+
+// sys_enter_execve
+#[tracepoint]
+pub fn sys_enter_execve(ctx: TracePointContext) -> u32 {
+    unsafe {
+        // Fix: Read argument 0 (filename)
+        if let Ok(filename_ptr) = ctx.read_at::<*const u8>(16) {
+            let mut buffer = [0u8; 128]; // Larger buffer to store the full path
+
+            // Read user-space string safely
+            match bpf_probe_read_user_str_bytes(filename_ptr, &mut buffer) {
+                Ok(bytes_read) => {
+                    let o = core::str::from_utf8_unchecked(&bytes_read[0..128]);
+                    info!(&ctx, "Executed binary: {}", o);
+                }
+                Err(e) => {
+                    info!(&ctx, "Error reading filename: {}", e);
+                }
+            }
+        } else {
+            info!(&ctx, "Failed to read filename pointer");
+        }
+    }
+
     0
 }
 
