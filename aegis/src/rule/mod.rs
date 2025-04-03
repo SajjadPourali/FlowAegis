@@ -1,6 +1,6 @@
-use ebpf_common::Action;
+use ebpf_common::{_Rule, Action, RuleV4, RuleV6, u128_to_u32_array};
 use serde::{Deserialize, Serialize};
-use std::{net::IpAddr, num::IntErrorKind};
+use std::{net::IpAddr, u32};
 
 fn default<T: Default + PartialEq>(t: &T) -> bool {
     *t == Default::default()
@@ -16,16 +16,10 @@ pub struct Rule {
     pub host: Host,
     #[serde(default)]
     #[serde(skip_serializing_if = "default")]
-    pub port: Num,
+    pub port: Vec<u16>,
     #[serde(default)]
     #[serde(skip_serializing_if = "default")]
-    pub uid: Num,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "default")]
-    pub gid: Num,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "default")]
-    pub pid: Num,
+    pub uid: Vec<u32>,
 }
 // #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 // pub enum Protocol {
@@ -41,99 +35,73 @@ pub enum Host {
     Any,
 }
 
-#[derive(Debug, Default, PartialEq)]
-pub enum Num {
-    Singular(u32),
-    Range(u32, u32),
-    // Multi(Vec<u32>),
-    #[default]
-    Any,
-}
-
-impl<'de> Deserialize<'de> for Num {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?
-            .chars()
-            .filter(|f| !f.is_whitespace())
-            .collect::<String>();
-
-        if s.is_empty() {
-            return Ok(Num::Any);
-        }
-        if let Ok(n) = s.parse::<u32>() {
-            return Ok(Num::Singular(n));
-        }
-        if let Some((start, end)) = s.split_once('-').and_then(|(s, e)| {
-            s.parse::<u32>()
-                .map_err(|e| {
-                    if *e.kind() == IntErrorKind::Empty {
-                        Some(0)
-                    } else {
-                        None
+impl From<Rule> for Vec<(ebpf_common::_Rule, u8)> {
+    fn from(value: Rule) -> Self {
+        let mut rules = Vec::new();
+        let mut flags = 0;
+        let ports = if value.port.is_empty() {
+            vec![0]
+        } else {
+            flags += 2;
+            value.port
+        };
+        let uids = if value.uid.is_empty() {
+            vec![0]
+        } else {
+            flags += 1;
+            value.uid
+        };
+        for port in ports {
+            for uid in &uids {
+                match value.host {
+                    Host::Ip(ip_addr, prefix) => match ip_addr {
+                        IpAddr::V4(ipv4_addr) => rules.push((
+                            _Rule::V4(RuleV4 {
+                                flags,
+                                port,
+                                uid: *uid,
+                                pid: 0,
+                                dst: ipv4_addr.to_bits(),
+                            }),
+                            prefix,
+                        )),
+                        IpAddr::V6(ipv6_addr) => rules.push((
+                            _Rule::V6(RuleV6 {
+                                flags,
+                                port,
+                                uid: *uid,
+                                pid: 0,
+                                dst: u128_to_u32_array(ipv6_addr.to_bits()),
+                            }),
+                            prefix,
+                        )),
+                    },
+                    Host::Any => {
+                        rules.push((
+                            _Rule::V4(RuleV4 {
+                                flags,
+                                port,
+                                uid: *uid,
+                                pid: 0,
+                                dst: 0,
+                            }),
+                            0,
+                        ));
+                        rules.push((
+                            _Rule::V6(RuleV6 {
+                                flags,
+                                port,
+                                uid: *uid,
+                                pid: 0,
+                                dst: [0, 0, 0, 0],
+                            }),
+                            0,
+                        ));
                     }
-                })
-                .ok()
-                .and_then(|s| {
-                    e.parse::<u32>()
-                        .map_err(|e| {
-                            if *e.kind() == IntErrorKind::Empty {
-                                Some(0)
-                            } else {
-                                None
-                            }
-                        })
-                        .ok()
-                        .map(|e| (s, e))
-                })
-        }) {
-            return Ok(Num::Range(start, end));
+                }
+            }
         }
-
-        // if s.contains(',') {
-        //     let nums: Result<Vec<u32>, _> = s.split(',').map(|x| x.parse::<u32>()).collect();
-        //     if let Ok(values) = nums {
-        //         return Ok(Num::Multi(values));
-        //     }
-        // }
-
-        Err(serde::de::Error::custom("Invalid Format"))
-    }
-}
-
-impl Serialize for Num {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Num::Any => serializer.serialize_str(""),
-            Num::Singular(n) => serializer.serialize_str(&n.to_string()),
-            Num::Range(start, end) => serializer.serialize_str(&format!("{}-{}", start, end)),
-            // Num::Multi(nums) => {
-            //     let nums_str = nums
-            //         .iter()
-            //         .map(|n| n.to_string())
-            //         .collect::<Vec<_>>()
-            //         .join(",");
-            //     serializer.serialize_str(&nums_str)
-            // }
-        }
-    }
-}
-
-impl From<Rule> for ebpf_common::Rule {
-    fn from(v: Rule) -> Self {
-        ebpf_common::Rule {
-            action: v.action,
-            host: ebpf_common::Host::from(v.host),
-            port: ebpf_common::Num::from(v.port),
-            uid: ebpf_common::Num::from(v.uid),
-            gid: ebpf_common::Num::from(v.gid),
-            pid: ebpf_common::Num::from(v.pid),
-        }
+        rules
     }
 }
 
@@ -161,16 +129,6 @@ impl From<Host> for ebpf_common::Host {
                 }
             },
             Host::Any => ebpf_common::Host::Any,
-        }
-    }
-}
-
-impl From<Num> for ebpf_common::Num {
-    fn from(v: Num) -> Self {
-        match v {
-            Num::Singular(v) => ebpf_common::Num::Singular(v),
-            Num::Range(from, to) => ebpf_common::Num::Range(from, to),
-            Num::Any => ebpf_common::Num::Any,
         }
     }
 }

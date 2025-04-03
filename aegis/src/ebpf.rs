@@ -6,12 +6,12 @@ use std::{
 };
 
 use aya::{
-    maps::AsyncPerfEventArray,
+    maps::{AsyncPerfEventArray, lpm_trie::Key},
     programs::{CgroupAttachMode, CgroupSockAddr, SockOps, TracePoint},
     util::online_cpus,
 };
 use bytes::BytesMut;
-use ebpf_common::{Action, CgroupInfo, MainProgramInfo, NetworkTuple};
+use ebpf_common::{Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple};
 use futures::{
     Stream, StreamExt,
     stream::{self, select_all},
@@ -71,9 +71,9 @@ impl Stream for EbpfMessageStream {
         {
             match network_tuple {
                 Some(network_tuple) => {
-                    
+                    let o = ("Default".to_string(), Action::Allow);
                     let (rule_name, rule_action) =
-                        self.rules.get(network_tuple.rule as usize).unwrap();
+                        self.rules.get(network_tuple.rule as usize).unwrap_or(&o);
                     // match ;
                     return std::task::Poll::Ready(Some(EbpfMessage {
                         action: match rule_action {
@@ -82,8 +82,8 @@ impl Stream for EbpfMessageStream {
                             Action::Forward => EbpfMessageAction::Forward(rule_name.to_owned()),
                             Action::Proxy => EbpfMessageAction::Proxy(rule_name.to_owned()),
                         },
-                        src: network_tuple.src.to_socket_addr(),//: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
-                        dst: network_tuple.actual_dst.to_socket_addr(),//,SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+                        src: network_tuple.src.to_socket_addr(), //: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+                        dst: network_tuple.actual_dst.to_socket_addr(), //,SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
                         uid: network_tuple.uid,
                         gid: network_tuple.gid,
                         pid: network_tuple.pid,
@@ -282,23 +282,59 @@ impl Ebpf {
             .unwrap();
     }
     pub fn set_rules(&mut self, rules: HashMap<String, crate::rule::Rule>) {
-        let mut tcp_rules: aya::maps::Array<&mut aya::maps::MapData, ebpf_common::Rule> =
-            aya::maps::Array::try_from(self.inner.map_mut("TCP_RULES").unwrap()).unwrap();
-        for (index, (r_name, r)) in rules.into_iter().enumerate() {
-            let r = ebpf_common::Rule::from(r);
+        let mut v4_rules = Vec::new();
+        let mut v6_rules = Vec::new();
+        for (rule_id, (r_name, r)) in rules.into_iter().enumerate() {
             self.rule_names.push((r_name, r.action));
-            tcp_rules.set(index as u32, r, 0).unwrap();
+            let value = LpmValue {
+                rule_id: rule_id as u32,
+                action: r.action,
+            };
+            for (rule, prefix) in Into::<Vec<(ebpf_common::_Rule, u8)>>::into(r) {
+                match rule {
+                    ebpf_common::_Rule::V4(rule_v4) => {
+                        let base_offset = ((core::mem::size_of_val(&rule_v4) - 4) * 8) as u32;
+                        let key = Key::new(base_offset + prefix as u32, rule_v4);
+                        v4_rules.push((key, value));
+                    }
+                    ebpf_common::_Rule::V6(rule_v6) => {
+                        let base_offset = ((core::mem::size_of_val(&rule_v6) - 16) * 8) as u32;
+                        let key = Key::new(base_offset + prefix as u32, rule_v6);
+                        v6_rules.push((key, value));
+                    }
+                }
+            }
+            let mut v4: aya::maps::LpmTrie<&mut aya::maps::MapData, ebpf_common::RuleV4, LpmValue> =
+                aya::maps::LpmTrie::try_from(self.inner.map_mut("V4_RULES").unwrap()).unwrap();
+            for (k, v) in &v4_rules {
+                v4.insert(&k, v, 0).unwrap();
+            }
+            let mut v6: aya::maps::LpmTrie<&mut aya::maps::MapData, ebpf_common::RuleV6, LpmValue> =
+                aya::maps::LpmTrie::try_from(self.inner.map_mut("V6_RULES").unwrap()).unwrap();
+            for (k, v) in &v6_rules {
+                v6.insert(&k, v, 0).unwrap();
+            }
         }
         self.main_program_info.number_of_active_rules = self.rule_names.len() as u32;
     }
     pub fn load_cgroups(&mut self) {
-        let program: &mut TracePoint = self.inner.program_mut("sched_process_exec").unwrap().try_into().unwrap();
+        let program: &mut TracePoint = self
+            .inner
+            .program_mut("sched_process_exec")
+            .unwrap()
+            .try_into()
+            .unwrap();
         program.load().unwrap();
         program.attach("sched", "sched_process_exec").unwrap();
-        let program: &mut TracePoint = self.inner.program_mut("sched_process_exit").unwrap().try_into().unwrap();
+        let program: &mut TracePoint = self
+            .inner
+            .program_mut("sched_process_exit")
+            .unwrap()
+            .try_into()
+            .unwrap();
         program.load().unwrap();
         program.attach("sched", "sched_process_exit").unwrap();
-        
+
         let cgroup = std::fs::File::open(CGROUP_PATH).unwrap();
         for prog in ["connect4", "connect6"] {
             let program: &mut CgroupSockAddr =

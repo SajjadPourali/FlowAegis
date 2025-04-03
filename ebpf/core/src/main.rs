@@ -5,16 +5,22 @@ use aya_ebpf::{
     EbpfContext,
     helpers::{bpf_probe_read_kernel_str_bytes, r#gen::bpf_get_prandom_u32},
     macros::{cgroup_sock_addr, map, sock_ops, tracepoint},
-    maps::{Array, LruHashMap, PerfEventArray},
+    maps::{Array, LpmTrie, LruHashMap, PerfEventArray, lpm_trie::Key},
     programs::{SockAddrContext, SockOpsContext, TracePointContext},
 };
 
 use aya_log_ebpf::info;
 
-use ebpf_common::{Action, CgroupInfo, MainProgramInfo, NetworkTuple, Rule, SocketAddrCompat};
+use ebpf_common::{
+    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, SocketAddrCompat,
+    u128_to_u32_array,
+};
 
 #[map]
-pub static TCP_RULES: Array<Rule> = Array::with_max_entries(256, 0);
+pub static V4_RULES: LpmTrie<ebpf_common::RuleV4, LpmValue> = LpmTrie::with_max_entries(256, 0);
+
+#[map]
+pub static V6_RULES: LpmTrie<ebpf_common::RuleV6, LpmValue> = LpmTrie::with_max_entries(256, 0);
 
 #[map]
 pub static MAIN_APP_INFO: Array<MainProgramInfo> = Array::with_max_entries(100, 0);
@@ -102,20 +108,34 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
 
     let mut rule_id = u32::MAX;
     let mut action = Action::Allow;
-    for i in 0..(main_program_info.number_of_active_rules).min(256) {
-        let Some(rule) = TCP_RULES.get(i) else {
-            return 1;
-        };
-        if rule.host.matches_ipv4(addr)
-            && rule.port.matches(port as u32)
-            && rule.uid.matches(uid)
-            && rule.pid.matches(pid)
-        {
-            action = rule.action;
-            rule_id = i;
+
+    let mut r4 = unsafe { core::mem::zeroed::<ebpf_common::RuleV4>() };
+    let base_offset = ((core::mem::size_of_val(&r4) - 4) * 8) as u32;
+    r4.dst = ip[3].swap_bytes();
+    for flags in [7, 6, 5, 4, 3, 2, 1, 0] {
+        r4.flags = flags;
+        r4.pid = 0;
+        r4.port = 0;
+        r4.uid = 0;
+        if (flags & 4) == 4 {
+            r4.pid = pid;
+        }
+        if (flags & 2) == 2 {
+            r4.port = port;
+        }
+        if (flags & 1) == 1 {
+            r4.uid = uid;
+        }
+
+        let key = Key::new(base_offset + 32, r4);
+        if let Some(v) = V4_RULES.get(&key) {
+            // info!(&ctx, "+++ {} {}", v.rule_id, ip[3]);
+            rule_id = v.rule_id;
+            action = v.action;
             break;
         }
     }
+
     let mut cgroup_info = unsafe { core::mem::zeroed::<CgroupInfo>() };
     cgroup_info.dst = addr;
     cgroup_info.uid = uid;
@@ -180,20 +200,34 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
 
     let mut rule_id = u32::MAX;
     let mut action = Action::Allow;
-    for i in 0..(main_program_info.number_of_active_rules).min(256) {
-        let Some(rule) = TCP_RULES.get(i) else {
-            return 1;
-        };
-        if rule.host.matches_ipv6(addr)
-            && rule.port.matches(port as u32)
-            && rule.uid.matches(uid)
-            && rule.pid.matches(pid)
-        {
-            action = rule.action;
-            rule_id = i;
+
+    let mut r6 = unsafe { core::mem::zeroed::<ebpf_common::RuleV6>() };
+    let base_offset = ((core::mem::size_of_val(&r6) - 4) * 8) as u32;
+    r6.dst = ip;
+    for flags in [7, 6, 5, 4, 3, 2, 1, 0] {
+        r6.flags = flags;
+        r6.pid = 0;
+        r6.port = 0;
+        r6.uid = 0;
+        if (flags & 4) == 4 {
+            r6.pid = pid;
+        }
+        if (flags & 2) == 2 {
+            r6.port = port;
+        }
+        if (flags & 1) == 1 {
+            r6.uid = uid;
+        }
+
+        let key = Key::new(base_offset + 128, r6);
+        if let Some(v) = V6_RULES.get(&key) {
+            // info!(&ctx, "+++ {} {}", v.rule_id, ip[3]);
+            rule_id = v.rule_id;
+            action = v.action;
             break;
         }
     }
+
     let mut cgroup_info = unsafe { core::mem::zeroed::<CgroupInfo>() };
     cgroup_info.dst = addr;
     cgroup_info.uid = uid;
@@ -242,16 +276,6 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
 //         | (arr[3].swap_bytes() as u128)
 //     // (arr[3] as u128) << 96 | (arr[2] as u128) << 64 | (arr[1] as u128) << 32 | (arr[0] as u128)
 // }
-
-#[inline(always)]
-fn u128_to_u32_array(value: u128) -> [u32; 4] {
-    [
-        (value >> 96) as u32,
-        (value >> 64) as u32,
-        (value >> 32) as u32,
-        (value & 0xFFFF_FFFF) as u32,
-    ]
-}
 
 #[sock_ops]
 pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {

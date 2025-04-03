@@ -41,37 +41,7 @@ pub enum Action {
     Forward,
     Proxy,
 }
-#[derive(Debug, Clone, Copy)]
-pub struct Rule {
-    pub action: Action,
-    pub host: Host,
-    pub port: Num,
-    pub uid: Num,
-    pub gid: Num,
-    pub pid: Num,
-}
 
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for Rule {}
-
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone, Copy)]
-pub enum Num {
-    Singular(u32),
-    Range(u32, u32),
-    // Multi([u32; 10]),
-    #[default]
-    Any,
-}
-
-impl Num {
-    pub fn matches(&self, num: u32) -> bool {
-        match self {
-            Num::Any => true,
-            Num::Singular(n) => *n == num,
-            Num::Range(start, end) => num >= *start && num <= *end,
-        }
-    }
-}
 
 #[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub enum Host {
@@ -119,6 +89,17 @@ impl Host {
         }
     }
 }
+
+#[inline(always)]
+pub fn u128_to_u32_array(value: u128) -> [u32; 4] {
+    [
+        (value >> 96) as u32,
+        (value >> 64) as u32,
+        (value >> 32) as u32,
+        (value & 0xFFFF_FFFF) as u32,
+    ]
+}
+
 #[repr(C, packed)]
 pub struct NetworkTuple {
     pub src: SocketAddrCompat,
@@ -171,4 +152,44 @@ impl SocketAddrCompat {
             ));
         }
     }
+}
+
+#[cfg(feature = "user")]
+unsafe impl aya::Pod for RuleV4 {}
+#[cfg(feature = "user")]
+unsafe impl aya::Pod for RuleV6 {}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct RuleV4 {
+    pub flags: u16, // 1 = has port, 2 = has uid , 4 = has pid
+    pub port: u16,
+    pub uid: u32,
+    pub pid: u32,
+    pub dst: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct RuleV6 {
+    pub flags: u16, // 1 = has port, 2 = has uid , 4 = has pid
+    pub port: u16,
+    pub uid: u32,
+    pub pid: u32,
+    pub dst: [u32; 4],
+}
+
+#[cfg(feature = "user")]
+pub enum _Rule {
+    V4(RuleV4),
+    V6(RuleV6),
+}
+
+#[cfg(feature = "user")]
+unsafe impl aya::Pod for LpmValue {}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct LpmValue {
+    pub rule_id: u32,
+    pub action: Action,
 }
