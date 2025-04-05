@@ -3,8 +3,6 @@
 
 use aya_ebpf::{macros::map, maps::LruHashMap};
 
-// use aya_log_ebpf::info;
-
 mod cgroups;
 mod sched;
 

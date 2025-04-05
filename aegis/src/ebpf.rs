@@ -12,8 +12,7 @@ use aya::{
 };
 use bytes::BytesMut;
 use ebpf_common::{
-    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, PathKey, ProcessInfo, RuleV4,
-    RuleV6,
+    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, PathKey, RuleV4, RuleV6,
 };
 use futures::{
     Stream, StreamExt,
@@ -32,7 +31,7 @@ pub struct EbpfMessage {
     pub gid: u32,
     pub pid: u32,
     pub tgid: u32,
-    pub path: Option<String>,
+    // pub path: Option<String>,
 }
 
 #[derive(Debug)]
@@ -47,9 +46,8 @@ pub enum EbpfMessageAction {
 pub struct EbpfMessageStream {
     rules: Vec<(std::string::String, Action)>,
     network_tuple_stream: AsyncPerfEventArrayStream<NetworkTuple>,
-    process_info: AsyncPerfEventArrayStream<ProcessInfo>,
     delay_queue: tokio_util::time::DelayQueue<CgroupInfo>,
-    process_map: HashMap<u32, String>,
+    // process_map: HashMap<u32, String>,
     // queue_map: HashMap<u32, tokio_util::time::delay_queue::Key>,
 }
 
@@ -60,22 +58,22 @@ impl Stream for EbpfMessageStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        if let std::task::Poll::Ready(process_info) = self.process_info.poll_next_unpin(cx) {
-            match process_info {
-                Some(pi) => {
-                    if pi.path_len == 0 {
-                        self.process_map.remove(&(pi.pid as u32));
-                    } else {
-                        if let Ok(path) =
-                            String::from_utf8(pi.path[..pi.path_len as usize].to_vec())
-                        {
-                            self.process_map.insert(pi.pid, path);
-                        }
-                    }
-                }
-                None => return std::task::Poll::Ready(None),
-            }
-        }
+        // if let std::task::Poll::Ready(process_info) = self.process_info.poll_next_unpin(cx) {
+        //     match process_info {
+        //         Some(pi) => {
+        //             if pi.path_len == 0 {
+        //                 self.process_map.remove(&(pi.pid as u32));
+        //             } else {
+        //                 if let Ok(path) =
+        //                     String::from_utf8(pi.path[..pi.path_len as usize].to_vec())
+        //                 {
+        //                     self.process_map.insert(pi.pid, path);
+        //                 }
+        //             }
+        //         }
+        //         None => return std::task::Poll::Ready(None),
+        //     }
+        // }
         if let std::task::Poll::Ready(network_tuple) = self.network_tuple_stream.poll_next_unpin(cx)
         {
             match network_tuple {
@@ -97,7 +95,7 @@ impl Stream for EbpfMessageStream {
                         gid: network_tuple.gid,
                         pid: network_tuple.pid,
                         tgid: network_tuple.tgid,
-                        path: self.process_map.get(&(network_tuple.tgid as u32)).cloned(),
+                        // path: self.process_map.get(&(network_tuple.tgid as u32)).cloned(),
                     }));
                     // let src = network_tuple.src;
                     // let tag = network_tuple.tag;
@@ -174,7 +172,7 @@ impl Stream for EbpfMessageStream {
                 gid,
                 pid,
                 tgid,
-                path: self.process_map.get(&(pid as u32)).cloned(),
+                // path: self.process_map.get(&(pid as u32)).cloned(),
             }));
         }
         std::task::Poll::Pending
@@ -398,27 +396,24 @@ impl Ebpf {
         program.attach(&cgroup, CgroupAttachMode::Single).unwrap();
     }
     pub fn get_event_stream(&mut self) -> EbpfMessageStream {
-        let mut process_map = HashMap::new();
-        if let Ok(process_iter) = procfs::process::all_processes() {
-            for prc in process_iter {
-                if let Ok(prc) = prc {
-                    if let Ok(path) = prc.exe() {
-                        process_map.insert(prc.pid() as u32, path.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
+        // let mut process_map = HashMap::new();
+        // if let Ok(process_iter) = procfs::process::all_processes() {
+        //     for prc in process_iter {
+        //         if let Ok(prc) = prc {
+        //             if let Ok(path) = prc.exe() {
+        //                 process_map.insert(prc.pid() as u32, path.to_string_lossy().to_string());
+        //             }
+        //         }
+        //     }
+        // }
 
         EbpfMessageStream {
             rules: self.rule_names.clone(),
             network_tuple_stream: AsyncPerfEventArrayStream::<NetworkTuple>::new(
                 self.inner.take_map("NETWORK_TUPLE").unwrap(),
             ),
-            process_info: AsyncPerfEventArrayStream::<ProcessInfo>::new(
-                self.inner.take_map("PROCESS_INFO").unwrap(),
-            ),
             delay_queue: Default::default(),
-            process_map,
+            // process_map,
             // queue_map: Default::default(),
         }
     }

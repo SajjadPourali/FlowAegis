@@ -61,6 +61,10 @@ async fn main() -> Result<(), error::AegisError> {
     loop {
         match future::select(event_stream.next(), proxy.next()).await {
             future::Either::Left((Some(msg), _)) => {
+                let path = procfs::process::Process::new(msg.tgid as i32)
+                    .and_then(|p| p.exe())
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
                 match &msg.action {
                     EbpfMessageAction::Allow(rname) => {
                         log::info!(
@@ -69,7 +73,7 @@ async fn main() -> Result<(), error::AegisError> {
                             msg.dst,
                             msg.uid,
                             msg.pid,
-                            msg.path.unwrap_or_default(),
+                            path,
                             rname
                         );
                     }
@@ -80,7 +84,7 @@ async fn main() -> Result<(), error::AegisError> {
                             msg.dst,
                             msg.uid,
                             msg.pid,
-                            msg.path.unwrap_or_default(),
+                            path,
                             rname
                         );
                     }
@@ -91,7 +95,7 @@ async fn main() -> Result<(), error::AegisError> {
                             msg.dst,
                             msg.uid,
                             msg.pid,
-                            msg.path.unwrap_or_default(),
+                            path,
                             rname
                         );
                     }
@@ -102,18 +106,10 @@ async fn main() -> Result<(), error::AegisError> {
                             msg.dst,
                             msg.uid,
                             msg.pid,
-                            msg.path.unwrap_or_default(),
+                            path,
                             rname
                         );
                     }
-                    // EbpfMessageAction::Missed => {
-                    //     log::info!(
-                    //         "Connection Missed - src={} dst={} path={}",
-                    //         msg.src,
-                    //         msg.dst,
-                    //         msg.path.unwrap_or_default(),
-                    //     );
-                    // }
                     EbpfMessageAction::Interrupted(rname) => {
                         log::info!(
                             "Connection Interrupted - src={} dst={} uid={} pid={} path={} rule={}",
@@ -121,7 +117,7 @@ async fn main() -> Result<(), error::AegisError> {
                             msg.dst,
                             msg.uid,
                             msg.pid,
-                            msg.path.unwrap_or_default(),
+                            path,
                             rname
                         );
                     }

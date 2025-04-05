@@ -66,7 +66,7 @@ impl Host {
         }
     }
     pub fn matches_ipv6(&self, ipv6: SocketAddrCompat) -> bool {
-        if ipv6.is_ipv6 == false {
+        if !ipv6.is_ipv6 {
             return false;
         };
 
@@ -144,10 +144,10 @@ impl SocketAddrCompat {
                 0,
             ))
         } else {
-            return SocketAddr::V4(SocketAddrV4::new(
+            SocketAddr::V4(SocketAddrV4::new(
                 Ipv4Addr::from_bits(self.ip[3]),
                 self.port,
-            ));
+            ))
         }
     }
 }
@@ -200,17 +200,5 @@ pub struct PathKey {
     pub flags: u16, // 1 = has uid
     // pub path_len: u8,
     pub pid: u32,
-    pub path: [u8; 128],
-}
-
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for ProcessInfo {}
-#[repr(C, packed)]
-#[derive(Copy, Clone)]
-pub struct ProcessInfo {
-    pub uid: u32,
-    pub pid: u32,
-    pub rule: u32,
-    pub path_len: u8,
     pub path: [u8; 128],
 }

@@ -92,7 +92,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     let pid = ctx.pid();
     let tgid = ctx.tgid();
 
-    if bpf_sock_addr.protocol != 6 || main_program_info.uid == uid {
+    if bpf_sock_addr.protocol != 6 || main_program_info.pid == tgid {
         // TCP
         return 1;
     }
@@ -129,7 +129,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         if let Some(v) = V4_RULES.get(&key) {
             if (flags & 4) == 4 {
                 // has path
-                if let Some(rid) = unsafe { PID_RULE_MAP.get(&(tgid as u32)) } {
+                if let Some(rid) = unsafe { PID_RULE_MAP.get(&tgid) } {
                     if rid == &v.rule_id {
                         rule_id = v.rule_id;
                         action = v.action;
@@ -195,7 +195,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     let pid = ctx.pid();
     let tgid = ctx.tgid();
 
-    if bpf_sock_addr.protocol != 6 || main_program_info.uid == uid {
+    if bpf_sock_addr.protocol != 6 || main_program_info.pid == tgid {
         // TCP
         return 1;
     }
@@ -237,7 +237,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
         if let Some(v) = V6_RULES.get(&key) {
             if (flags & 4) == 4 {
                 // has path
-                if let Some(rid) = unsafe { PID_RULE_MAP.get(&(tgid as u32)) } {
+                if let Some(rid) = unsafe { PID_RULE_MAP.get(&tgid) } {
                     if rid == &v.rule_id {
                         rule_id = v.rule_id;
                         action = v.action;
@@ -293,54 +293,15 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     }
 }
 
-// #[inline(always)]
-// fn u32_array_to_u128(arr: [u32; 4]) -> u128 {
-//     ((arr[0].swap_bytes() as u128) << 96)
-//         | ((arr[1].swap_bytes() as u128) << 64)
-//         | ((arr[2].swap_bytes() as u128) << 32)
-//         | (arr[3].swap_bytes() as u128)
-//     // (arr[3] as u128) << 96 | (arr[2] as u128) << 64 | (arr[1] as u128) << 32 | (arr[0] as u128)
-// }
-
 #[sock_ops]
 pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
     let Some(cgroup_info) = unmark_socket(ctx.ops as *mut core::ffi::c_void) else {
         return 1;
     };
-    // info!(
-    //     &ctx,
-    //     "{}",
-    //     get_socket_mark(ctx.ops as *mut core::ffi::c_void)
-    // );
-    // match unmark_socket(ctx.ops as *mut core::ffi::c_void) {
-    //     Some(x) => {
-    //         info!(&ctx, "{}", x);
-    //     }
-    //     None => {
-    //         info!(&ctx, "{}", "NONE");
-    //     }
-    // };
-    // return 1;
     if ctx.op() != 4 {
         // BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB
         return 0;
     }
-
-    // let mut tag: u32 = 0;
-    // let tag_size = core::mem::size_of_val(&tag) as i32;
-
-    // unsafe {
-    //     aya_ebpf::helpers::r#gen::bpf_getsockopt(
-    //         ctx.ops as *mut core::ffi::c_void,
-    //         aya_ebpf::bindings::SOL_SOCKET as i32,
-    //         aya_ebpf::bindings::SO_MARK as i32,
-    //         &mut tag as *mut _ as *mut core::ffi::c_void,
-    //         tag_size,
-    //     );
-    // }
-    // if tag == u32::MAX {
-    //     return 1;
-    // }
     let remote_port = ctx.remote_port().swap_bytes() as u16;
     let local_port = ctx.local_port() as u16;
     let (src, dst) = if ctx.family() == 2 {

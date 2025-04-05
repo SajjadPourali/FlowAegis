@@ -29,7 +29,8 @@ forward_address_ipv6 = "[::1]:80"
 
 [rules.test3]
 action = "Forward"
-ipv4 = ["1.1.1.1", 32]
+# ipv4 = ["1.1.1.1", 32]
+path = "/usr/bin/"
 
 
 # [rules.test4]
