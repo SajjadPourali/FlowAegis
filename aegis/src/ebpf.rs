@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    hash::Hash,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     pin::Pin,
     ptr,
