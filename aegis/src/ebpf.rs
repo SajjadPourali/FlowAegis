@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    hash::Hash,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     pin::Pin,
     ptr,
@@ -97,7 +98,7 @@ impl Stream for EbpfMessageStream {
                         gid: network_tuple.gid,
                         pid: network_tuple.pid,
                         tgid: network_tuple.tgid,
-                        path: self.process_map.get(&(network_tuple.pid as u32)).cloned(),
+                        path: self.process_map.get(&(network_tuple.tgid as u32)).cloned(),
                     }));
                     // let src = network_tuple.src;
                     // let tag = network_tuple.tag;
@@ -239,7 +240,7 @@ pub struct Ebpf {
 
 impl Ebpf {
     pub fn new() -> Result<Self, error::AegisError> {
-        let ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
+        let mut ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
             env!("OUT_DIR"),
             "/ebpf"
         )))
@@ -258,7 +259,7 @@ impl Ebpf {
         .unwrap();
         // ulimit -l unlimited
 
-        // let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
+        let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
         Ok(Self {
             inner: ebpf,
             main_program_info: MainProgramInfo {
@@ -351,14 +352,7 @@ impl Ebpf {
                     pid,
                     path,
                 };
-                // let filename =
-                //     unsafe { core::str::from_utf8_unchecked(&path[..path_len as usize]) };
 
-                // dbg!(uid, path_flags, path_len, filename);
-                // let l = (size_of_val(&pk) - (128 - path_len as usize)) as u32 * 8;
-                // let o = unsafe { transmute::<PathKey, [u8; 134]>(pk) };
-                // dbg!(o);
-                // dbg!("pk: {} {:?}", path_len, l);
                 let pkk = Key::new(
                     (size_of_val(&pk) - (128 - path_len as usize)) as u32 * 8,
                     pk,
@@ -405,7 +399,17 @@ impl Ebpf {
         program.attach(&cgroup, CgroupAttachMode::Single).unwrap();
     }
     pub fn get_event_stream(&mut self) -> EbpfMessageStream {
-        // self.inner.take_map("SOCKET_MARK_MAP").unwrap();
+        let mut process_map = HashMap::new();
+        if let Ok(process_iter) = procfs::process::all_processes() {
+            for prc in process_iter {
+                if let Ok(prc) = prc {
+                    if let Ok(path) = prc.exe() {
+                        process_map.insert(prc.pid() as u32, path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+
         EbpfMessageStream {
             rules: self.rule_names.clone(),
             network_tuple_stream: AsyncPerfEventArrayStream::<NetworkTuple>::new(
@@ -415,7 +419,7 @@ impl Ebpf {
                 self.inner.take_map("PROCESS_INFO").unwrap(),
             ),
             delay_queue: Default::default(),
-            process_map: Default::default(),
+            process_map,
             // queue_map: Default::default(),
         }
     }

@@ -25,6 +25,7 @@ log = { workspace = true }
 tokio-util = { workspace = true, default-features = false, features = ["time"] }
 proxy-stream = { workspace = true, default-features = false }
 thiserror = { workspace = true, default-features = false }
+procfs = { workspace = true, default-features = false }
 [build-dependencies]
 aya-build = { workspace = true }
 anyhow = { workspace = true }

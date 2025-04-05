@@ -100,6 +100,8 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     let bpf_sock_addr = unsafe { *ctx.sock_addr };
     let uid = ctx.uid();
     let pid = ctx.pid();
+    let tgid = ctx.tgid();
+    
     if bpf_sock_addr.protocol != 6 || main_program_info.uid == uid {
         // TCP
         return 1;
@@ -137,7 +139,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         if let Some(v) = V4_RULES.get(&key) {
             if (flags & 4) == 4 {
                 // has path
-                if let Some(rid) = unsafe { PID_RULE_MAP.get(&(pid as u32)) } {
+                if let Some(rid) = unsafe { PID_RULE_MAP.get(&(tgid as u32)) } {
                     if rid == &v.rule_id {
                         rule_id = v.rule_id;
                         action = v.action;
@@ -158,10 +160,15 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     cgroup_info.uid = uid;
     cgroup_info.gid = ctx.gid();
     cgroup_info.pid = pid;
-    cgroup_info.tgid = ctx.gid();
+    cgroup_info.tgid = tgid;
     cgroup_info.rule = rule_id;
     cgroup_info.tag = 0;
-
+    // info!(
+    //     &ctx,
+    //     "connect4: {} {} ",
+    //     cgroup_info.pid,
+    //     cgroup_info.tgid,
+    // );
     mark_socket(
         ctx.sock_addr as *const _ as *mut core::ffi::c_void,
         cgroup_info,
@@ -196,6 +203,8 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     let bpf_sock_addr = unsafe { *ctx.sock_addr };
     let uid = ctx.uid();
     let pid = ctx.pid();
+    let tgid = ctx.tgid();
+
     if bpf_sock_addr.protocol != 6 || main_program_info.uid == uid {
         // TCP
         return 1;
@@ -238,7 +247,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
         if let Some(v) = V6_RULES.get(&key) {
             if (flags & 4) == 4 {
                 // has path
-                if let Some(rid) = unsafe { PID_RULE_MAP.get(&(pid as u32)) } {
+                if let Some(rid) = unsafe { PID_RULE_MAP.get(&(tgid as u32)) } {
                     if rid == &v.rule_id {
                         rule_id = v.rule_id;
                         action = v.action;
@@ -259,7 +268,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     cgroup_info.uid = uid;
     cgroup_info.gid = ctx.gid();
     cgroup_info.pid = pid;
-    cgroup_info.tgid = ctx.gid();
+    cgroup_info.tgid = tgid;
     cgroup_info.rule = rule_id;
     cgroup_info.tag = 0;
 
@@ -439,8 +448,8 @@ pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
         };
         // r4.path_len = data_path_len as u8;
         r4.path = data.path;
-        // let filename = core::str::from_utf8_unchecked(&data.path[..data_path_len as usize]);
-        // info!(&ctx, "Executed binary: {}, {}", filename, data_path_len);
+        // let filename = core::str::from_utf8_unchecked(&data.path[..r4.path_len as usize]);
+        // info!(&ctx, "Executed binary: {}, {} - {}", filename, pid,ctx.pid());
         // data.path_len = path.len() as u8;
         let key = Key {
             prefix_len: (size_of_val(&data) * 8) as u32,
@@ -453,7 +462,7 @@ pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
             PATH_RULES.get(&key)
         }) {
             r4.rule = *rule_id;
-            // info!(&ctx, "Allowed binary: {}", filename);
+            // info!(&ctx, "Allowed binary: {} {}", filename,pid);
             PID_RULE_MAP.insert(&(pid as u32), rule_id, 0).unwrap();
         }
         PROCESS_INFO.output(&ctx, &r4, 0);
