@@ -12,7 +12,8 @@ use aya::{
 };
 use bytes::BytesMut;
 use ebpf_common::{
-    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, PathKey, RuleV4, RuleV6,
+    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, PathKey, ProcessInfo, RuleV4,
+    RuleV6,
 };
 use futures::{
     Stream, StreamExt,
@@ -31,6 +32,7 @@ pub struct EbpfMessage {
     pub gid: u32,
     pub pid: u32,
     pub tgid: u32,
+    pub path: Option<String>,
 }
 
 #[derive(Debug)]
@@ -39,14 +41,15 @@ pub enum EbpfMessageAction {
     Deny(String),
     Forward(String),
     Proxy(String),
-    Missed,
+    // Missed,
     Interrupted(String),
 }
 pub struct EbpfMessageStream {
     rules: Vec<(std::string::String, Action)>,
     network_tuple_stream: AsyncPerfEventArrayStream<NetworkTuple>,
-    // cgroup_info_stream: AsyncPerfEventArrayStream<CgroupInfo>,
+    process_info: AsyncPerfEventArrayStream<ProcessInfo>,
     delay_queue: tokio_util::time::DelayQueue<CgroupInfo>,
+    process_map: HashMap<u32, String>,
     // queue_map: HashMap<u32, tokio_util::time::delay_queue::Key>,
 }
 
@@ -57,18 +60,22 @@ impl Stream for EbpfMessageStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        // if let std::task::Poll::Ready(cgroup_info) = self.cgroup_info_stream.poll_next_unpin(cx) {
-        //     match cgroup_info {
-        //         Some(cgroup_info) => {
-        //             let tag = cgroup_info.tag;
-        //             let key = self
-        //                 .delay_queue
-        //                 .insert(cgroup_info, std::time::Duration::from_secs(1));
-        //             self.queue_map.insert(tag, key);
-        //         }
-        //         None => return std::task::Poll::Ready(None),
-        //     }
-        // }
+        if let std::task::Poll::Ready(process_info) = self.process_info.poll_next_unpin(cx) {
+            match process_info {
+                Some(pi) => {
+                    if pi.path_len == 0 {
+                        self.process_map.remove(&(pi.pid as u32));
+                    } else {
+                        if let Ok(path) =
+                            String::from_utf8(pi.path[..pi.path_len as usize].to_vec())
+                        {
+                            self.process_map.insert(pi.pid, path);
+                        }
+                    }
+                }
+                None => return std::task::Poll::Ready(None),
+            }
+        }
         if let std::task::Poll::Ready(network_tuple) = self.network_tuple_stream.poll_next_unpin(cx)
         {
             match network_tuple {
@@ -90,6 +97,7 @@ impl Stream for EbpfMessageStream {
                         gid: network_tuple.gid,
                         pid: network_tuple.pid,
                         tgid: network_tuple.tgid,
+                        path: self.process_map.get(&(network_tuple.pid as u32)).cloned(),
                     }));
                     // let src = network_tuple.src;
                     // let tag = network_tuple.tag;
@@ -166,6 +174,7 @@ impl Stream for EbpfMessageStream {
                 gid,
                 pid,
                 tgid,
+                path: self.process_map.get(&(pid as u32)).cloned(),
             }));
         }
         std::task::Poll::Pending
@@ -230,7 +239,7 @@ pub struct Ebpf {
 
 impl Ebpf {
     pub fn new() -> Result<Self, error::AegisError> {
-        let mut ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
+        let ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
             env!("OUT_DIR"),
             "/ebpf"
         )))
@@ -249,7 +258,7 @@ impl Ebpf {
         .unwrap();
         // ulimit -l unlimited
 
-        let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
+        // let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
         Ok(Self {
             inner: ebpf,
             main_program_info: MainProgramInfo {
@@ -336,10 +345,10 @@ impl Ebpf {
                 ebpf_common::PathKey,
                 u32,
             > = aya::maps::LpmTrie::try_from(self.inner.map_mut("PATH_RULES").unwrap()).unwrap();
-            for uid in path_keys {
+            for pid in path_keys {
                 let pk = PathKey {
                     flags: path_flags,
-                    uid,
+                    pid,
                     path,
                 };
                 // let filename =
@@ -402,10 +411,11 @@ impl Ebpf {
             network_tuple_stream: AsyncPerfEventArrayStream::<NetworkTuple>::new(
                 self.inner.take_map("NETWORK_TUPLE").unwrap(),
             ),
-            // cgroup_info_stream: AsyncPerfEventArrayStream::<CgroupInfo>::new(
-            //     self.inner.take_map("CGROUP_INFO").unwrap(),
-            // ),
+            process_info: AsyncPerfEventArrayStream::<ProcessInfo>::new(
+                self.inner.take_map("PROCESS_INFO").unwrap(),
+            ),
             delay_queue: Default::default(),
+            process_map: Default::default(),
             // queue_map: Default::default(),
         }
     }

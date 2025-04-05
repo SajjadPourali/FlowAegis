@@ -64,54 +64,64 @@ async fn main() -> Result<(), error::AegisError> {
                 match &msg.action {
                     EbpfMessageAction::Allow(rname) => {
                         log::info!(
-                            "Connection Allowed - src={} dst={} uid={} pid={} rule={}",
+                            "Connection Allowed - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
                             msg.dst,
                             msg.uid,
                             msg.pid,
+                            msg.path.unwrap_or_default(),
                             rname
                         );
                     }
                     EbpfMessageAction::Deny(rname) => {
                         log::info!(
-                            "Connection Denined - src={} dst={} uid={} pid={} rule={}",
+                            "Connection Denined - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
                             msg.dst,
                             msg.uid,
                             msg.pid,
+                            msg.path.unwrap_or_default(),
                             rname
                         );
                     }
                     EbpfMessageAction::Forward(rname) => {
                         log::info!(
-                            "Connection Forwarded - src={} dst={} uid={} pid={} rule={}",
+                            "Connection Forwarded - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
                             msg.dst,
                             msg.uid,
                             msg.pid,
+                            msg.path.unwrap_or_default(),
                             rname
                         );
                     }
                     EbpfMessageAction::Proxy(rname) => {
                         log::info!(
-                            "Connection Proxied - src={} dst={} uid={} pid={} rule={}",
+                            "Connection Proxied - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
                             msg.dst,
                             msg.uid,
                             msg.pid,
+                            msg.path.unwrap_or_default(),
                             rname
                         );
                     }
-                    EbpfMessageAction::Missed => {
-                        log::info!("Connection Missed - src={} dst={}", msg.src, msg.dst,);
-                    }
+                    // EbpfMessageAction::Missed => {
+                    //     log::info!(
+                    //         "Connection Missed - src={} dst={} path={}",
+                    //         msg.src,
+                    //         msg.dst,
+                    //         msg.path.unwrap_or_default(),
+                    //     );
+                    // }
                     EbpfMessageAction::Interrupted(rname) => {
                         log::info!(
-                            "Connection Interrupted - src={} dst={} uid={} pid={} rule={}",
+                            "Connection Interrupted - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
                             msg.dst,
                             msg.uid,
                             msg.pid,
+                            msg.path.unwrap_or_default(),
                             rname
                         );
                     }

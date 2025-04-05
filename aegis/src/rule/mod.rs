@@ -1,6 +1,9 @@
 use ebpf_common::{_Rule, Action, RuleV4, RuleV6, u128_to_u32_array};
 use serde::{Deserialize, Serialize};
-use std::{net::IpAddr, u32};
+use std::{
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    u32,
+};
 
 fn default<T: Default + PartialEq>(t: &T) -> bool {
     *t == Default::default()
@@ -11,7 +14,9 @@ pub struct Rule {
     pub action: Action,
     // #[serde(flatten)]
     #[serde(skip_serializing_if = "default")]
-    pub host: Option<Host>,
+    pub ipv4: Option<(Ipv4Addr, u8)>,
+    #[serde(skip_serializing_if = "default")]
+    pub ipv6: Option<(Ipv6Addr, u8)>,
     #[serde(default)]
     #[serde(skip_serializing_if = "default")]
     pub port: Vec<u16>,
@@ -47,47 +52,47 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
         }
         for port in ports {
             for uid in &uids {
-                match value.host {
-                    Some(Host(ip_addr, prefix)) => match ip_addr {
-                        IpAddr::V4(ipv4_addr) => rules.push((
-                            _Rule::V4(RuleV4 {
-                                flags,
-                                port,
-                                uid: *uid,
-                                dst: ipv4_addr.to_bits(),
-                            }),
-                            prefix,
-                        )),
-                        IpAddr::V6(ipv6_addr) => rules.push((
-                            _Rule::V6(RuleV6 {
-                                flags,
-                                port,
-                                uid: *uid,
-                                dst: u128_to_u32_array(ipv6_addr.to_bits()),
-                            }),
-                            prefix,
-                        )),
-                    },
-                    None => {
-                        rules.push((
-                            _Rule::V4(RuleV4 {
-                                flags,
-                                port,
-                                uid: *uid,
-                                dst: 0,
-                            }),
-                            0,
-                        ));
-                        rules.push((
-                            _Rule::V6(RuleV6 {
-                                flags,
-                                port,
-                                uid: *uid,
-                                dst: [0, 0, 0, 0],
-                            }),
-                            0,
-                        ));
-                    }
+                if let Some((ip_addr, prefix)) = value.ipv4 {
+                    rules.push((
+                        _Rule::V4(RuleV4 {
+                            flags,
+                            port,
+                            uid: *uid,
+                            dst: ip_addr.to_bits(),
+                        }),
+                        prefix,
+                    ))
+                } else {
+                    rules.push((
+                        _Rule::V4(RuleV4 {
+                            flags,
+                            port,
+                            uid: *uid,
+                            dst: 0,
+                        }),
+                        0,
+                    ));
+                }
+                if let Some((ip_addr, prefix)) = value.ipv6 {
+                    rules.push((
+                        _Rule::V6(RuleV6 {
+                            flags,
+                            port,
+                            uid: *uid,
+                            dst: u128_to_u32_array(ip_addr.to_bits()),
+                        }),
+                        prefix,
+                    ))
+                } else {
+                    rules.push((
+                        _Rule::V6(RuleV6 {
+                            flags,
+                            port,
+                            uid: *uid,
+                            dst: [0; 4],
+                        }),
+                        0,
+                    ));
                 }
             }
         }

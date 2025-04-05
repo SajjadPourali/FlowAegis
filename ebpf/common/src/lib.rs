@@ -199,6 +199,18 @@ unsafe impl aya::Pod for PathKey {}
 pub struct PathKey {
     pub flags: u16, // 1 = has uid
     // pub path_len: u8,
+    pub pid: u32,
+    pub path: [u8; 128],
+}
+
+#[cfg(feature = "user")]
+unsafe impl aya::Pod for ProcessInfo {}
+#[repr(C, packed)]
+#[derive(Copy, Clone)]
+pub struct ProcessInfo {
     pub uid: u32,
+    pub pid: u32,
+    pub rule: u32,
+    pub path_len: u8,
     pub path: [u8; 128],
 }
