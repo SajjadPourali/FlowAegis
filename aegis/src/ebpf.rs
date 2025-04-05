@@ -11,7 +11,9 @@ use aya::{
     util::online_cpus,
 };
 use bytes::BytesMut;
-use ebpf_common::{Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple};
+use ebpf_common::{
+    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, PathKey, RuleV4, RuleV6,
+};
 use futures::{
     Stream, StreamExt,
     stream::{self, select_all},
@@ -253,7 +255,6 @@ impl Ebpf {
             main_program_info: MainProgramInfo {
                 uid: unsafe { geteuid() },
                 pid: unsafe { getpid() },
-                number_of_active_rules: 0,
                 forward_v4_address: SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0),
                 proxy_v4_address: SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0),
                 forward_v6_address: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0),
@@ -282,15 +283,31 @@ impl Ebpf {
             .unwrap();
     }
     pub fn set_rules(&mut self, rules: HashMap<String, crate::rule::Rule>) {
-        let mut v4_rules = Vec::new();
-        let mut v6_rules = Vec::new();
         for (rule_id, (r_name, r)) in rules.into_iter().enumerate() {
+            let mut v4_rules = Vec::new();
+            let mut v6_rules = Vec::new();
+            let mut path_keys = Vec::new();
+
             self.rule_names.push((r_name, r.action));
             let value = LpmValue {
                 rule_id: rule_id as u32,
                 action: r.action,
             };
-            for (rule, prefix) in Into::<Vec<(ebpf_common::_Rule, u8)>>::into(r) {
+            let path_flags = (!r.uid.is_empty()) as u16;
+            let mut path = [0u8; 128];
+            let path_len = r.path.len() as u8;
+            if !r.path.is_empty() {
+                path[..r.path.len().min(128)].copy_from_slice(r.path.as_bytes());
+            }
+
+            for (rule, prefix) in Into::<Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)>>::into(r) {
+                let uid = match rule {
+                    ebpf_common::_Rule::V4(rule_v4) => rule_v4.uid,
+                    ebpf_common::_Rule::V6(rule_v6) => rule_v6.uid,
+                };
+                if path_len > 0 {
+                    path_keys.push(uid);
+                }
                 match rule {
                     ebpf_common::_Rule::V4(rule_v4) => {
                         let base_offset = ((core::mem::size_of_val(&rule_v4) - 4) * 8) as u32;
@@ -314,8 +331,33 @@ impl Ebpf {
             for (k, v) in &v6_rules {
                 v6.insert(&k, v, 0).unwrap();
             }
+            let mut path_map: aya::maps::LpmTrie<
+                &mut aya::maps::MapData,
+                ebpf_common::PathKey,
+                u32,
+            > = aya::maps::LpmTrie::try_from(self.inner.map_mut("PATH_RULES").unwrap()).unwrap();
+            for uid in path_keys {
+                let pk = PathKey {
+                    flags: path_flags,
+                    uid,
+                    path,
+                };
+                // let filename =
+                //     unsafe { core::str::from_utf8_unchecked(&path[..path_len as usize]) };
+
+                // dbg!(uid, path_flags, path_len, filename);
+                // let l = (size_of_val(&pk) - (128 - path_len as usize)) as u32 * 8;
+                // let o = unsafe { transmute::<PathKey, [u8; 134]>(pk) };
+                // dbg!(o);
+                // dbg!("pk: {} {:?}", path_len, l);
+                let pkk = Key::new(
+                    (size_of_val(&pk) - (128 - path_len as usize)) as u32 * 8,
+                    pk,
+                );
+
+                path_map.insert(&pkk, rule_id as u32, 0).unwrap();
+            }
         }
-        self.main_program_info.number_of_active_rules = self.rule_names.len() as u32;
     }
     pub fn load_cgroups(&mut self) {
         let program: &mut TracePoint = self

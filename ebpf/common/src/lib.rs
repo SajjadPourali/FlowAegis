@@ -18,7 +18,6 @@
 pub struct MainProgramInfo {
     pub uid: u32,
     pub pid: u32,
-    pub number_of_active_rules: u32,
     pub forward_v4_address: SocketAddrV4,
     pub proxy_v4_address: SocketAddrV4,
     pub forward_v6_address: SocketAddrV6,
@@ -41,7 +40,6 @@ pub enum Action {
     Forward,
     Proxy,
 }
-
 
 #[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub enum Host {
@@ -162,27 +160,27 @@ unsafe impl aya::Pod for RuleV6 {}
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct RuleV4 {
-    pub flags: u16, // 1 = has port, 2 = has uid , 4 = has pid
+    pub flags: u16, // 1 = has port, 2 = has uid , 4 = has path
     pub port: u16,
     pub uid: u32,
-    pub pid: u32,
+    // pub pid: u32,
     pub dst: u32,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct RuleV6 {
-    pub flags: u16, // 1 = has port, 2 = has uid , 4 = has pid
+    pub flags: u16, // 1 = has port, 2 = has uid , 4 = has path
     pub port: u16,
     pub uid: u32,
-    pub pid: u32,
+    // pub pid: u32,
     pub dst: [u32; 4],
 }
 
 #[cfg(feature = "user")]
-pub enum _Rule {
-    V4(RuleV4),
-    V6(RuleV6),
+pub enum _Rule<V4, V6> {
+    V4(V4),
+    V6(V6),
 }
 
 #[cfg(feature = "user")]
@@ -192,4 +190,15 @@ unsafe impl aya::Pod for LpmValue {}
 pub struct LpmValue {
     pub rule_id: u32,
     pub action: Action,
+}
+
+#[cfg(feature = "user")]
+unsafe impl aya::Pod for PathKey {}
+#[repr(C, packed)]
+#[derive(Copy, Clone)]
+pub struct PathKey {
+    pub flags: u16, // 1 = has uid
+    // pub path_len: u8,
+    pub uid: u32,
+    pub path: [u8; 128],
 }

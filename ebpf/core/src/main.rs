@@ -12,7 +12,7 @@ use aya_ebpf::{
 use aya_log_ebpf::info;
 
 use ebpf_common::{
-    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, SocketAddrCompat,
+    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, PathKey, SocketAddrCompat,
     u128_to_u32_array,
 };
 
@@ -21,6 +21,9 @@ pub static V4_RULES: LpmTrie<ebpf_common::RuleV4, LpmValue> = LpmTrie::with_max_
 
 #[map]
 pub static V6_RULES: LpmTrie<ebpf_common::RuleV6, LpmValue> = LpmTrie::with_max_entries(256, 0);
+
+#[map]
+pub static PATH_RULES: LpmTrie<PathKey, u32> = LpmTrie::with_max_entries(256, 0);
 
 #[map]
 pub static MAIN_APP_INFO: Array<MainProgramInfo> = Array::with_max_entries(100, 0);
@@ -33,6 +36,12 @@ pub static CGROUP_INFO: PerfEventArray<CgroupInfo> = PerfEventArray::new(0);
 
 #[map]
 pub static SOCKET_MARK_MAP: LruHashMap<u32, CgroupInfo> = LruHashMap::with_max_entries(1024, 0);
+
+#[map]
+pub static PID_RULE_MAP: LruHashMap<u32, u32> = LruHashMap::with_max_entries(1024, 0);
+
+// #[map]
+// pub static PROCESS_STATUS: PerfEventArray<ProcessPath> = PerfEventArray::new(0);
 
 pub fn set_socket_mark(bpf_socket: *mut core::ffi::c_void, tag: u32) {
     unsafe {
@@ -114,12 +123,10 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     r4.dst = ip[3].swap_bytes();
     for flags in [7, 6, 5, 4, 3, 2, 1, 0] {
         r4.flags = flags;
-        r4.pid = 0;
+        // r4.pid = 0;
         r4.port = 0;
         r4.uid = 0;
-        if (flags & 4) == 4 {
-            r4.pid = pid;
-        }
+
         if (flags & 2) == 2 {
             r4.port = port;
         }
@@ -130,6 +137,19 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         let key = Key::new(base_offset + 32, r4);
         if let Some(v) = V4_RULES.get(&key) {
             // info!(&ctx, "+++ {} {}", v.rule_id, ip[3]);
+            if (flags & 4) == 4 {
+                // has path
+                if let Some(rid) = unsafe { PID_RULE_MAP.get(&(pid as u32)) } {
+                    if rid == &v.rule_id {
+                        rule_id = v.rule_id;
+                        action = v.action;
+                        info!(&ctx, "+++ ");
+                        break;
+                    }
+                }
+                continue;
+                // r4.pid = pid;
+            }
             rule_id = v.rule_id;
             action = v.action;
             break;
@@ -206,11 +226,11 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     r6.dst = ip;
     for flags in [7, 6, 5, 4, 3, 2, 1, 0] {
         r6.flags = flags;
-        r6.pid = 0;
+        // r6.pid = 0;
         r6.port = 0;
         r6.uid = 0;
-        if (flags & 4) == 4 {
-            r6.pid = pid;
+        if (flags & 4) == 4 { // has path
+            // r6.pid = pid;
         }
         if (flags & 2) == 2 {
             r6.port = port;
@@ -389,26 +409,41 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
 #[tracepoint]
 pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
     unsafe {
-        if let Ok(filename_offset) = ctx.read_at::<u8>(8) {
-            let filename_ptr = ctx.as_ptr().offset(filename_offset as isize) as *const u8;
-            let mut buffer = [0u8; 256];
-            match bpf_probe_read_kernel_str_bytes(filename_ptr, &mut buffer) {
-                Ok(bytes_read) => {
-                    let filename = core::str::from_utf8_unchecked(&bytes_read);
-                    info!(&ctx, "Executed binary: {}", filename);
-                }
-                Err(e) => {
-                    info!(&ctx, "Error reading filename: {}", e);
-                }
-            }
-        } else {
-            info!(&ctx, "Failed to read filename offset");
-        }
-        if let Ok(pid) = ctx.read_at::<i32>(12) {
-            info!(&ctx, "enter PID: {}", pid);
-        } else {
-            info!(&ctx, "Failed to read PID");
-        }
+        let pid = ctx.read_at::<i32>(12).unwrap();
+        let mut data = core::mem::zeroed::<ebpf_common::PathKey>();
+        data.flags = 0;
+        data.uid = 0;
+        let mut data_path_len = 0;
+        data.path = {
+            let mut buf = [0u8; 128];
+            let Ok(path) = ctx.read_at::<u8>(8).and_then(|ptr| {
+                bpf_probe_read_kernel_str_bytes(
+                    ctx.as_ptr().offset(ptr as isize) as *const u8,
+                    &mut buf,
+                )
+            }) else {
+                return 0;
+            };
+            data_path_len = path.len() as u32;
+            buf
+        };
+        let filename = core::str::from_utf8_unchecked(&data.path[..data_path_len as usize]);
+        info!(&ctx, "Executed binary: {}, {}", filename, data_path_len);
+        // data.path_len = path.len() as u8;
+        let key = Key {
+            prefix_len: (size_of_val(&data) * 8) as u32,
+            data,
+        };
+
+        let Some(rule_id) = PATH_RULES.get(&key).or({
+            data.flags = 1;
+            data.uid = pid as u32;
+            PATH_RULES.get(&key)
+        }) else {
+            return 0;
+        };
+        info!(&ctx, "Allowed binary: {}", filename);
+        PID_RULE_MAP.insert(&(pid as u32), rule_id, 0).unwrap();
     }
     0
 }
@@ -417,6 +452,7 @@ pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
 pub fn sched_process_exit(ctx: TracePointContext) -> u32 {
     unsafe {
         if let Ok(pid) = ctx.read_at::<i32>(24) {
+            PID_RULE_MAP.remove(&(pid as u32)).unwrap();
             info!(&ctx, "exit PID: {}", pid);
         } else {
             info!(&ctx, "Failed to read PID");
