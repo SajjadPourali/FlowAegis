@@ -237,7 +237,7 @@ pub struct Ebpf {
 
 impl Ebpf {
     pub fn new() -> Result<Self, error::AegisError> {
-        let mut ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
+        let ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
             env!("OUT_DIR"),
             "/ebpf"
         )))
@@ -256,7 +256,7 @@ impl Ebpf {
         .unwrap();
         // ulimit -l unlimited
 
-        let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
+        // let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
         Ok(Self {
             inner: ebpf,
             main_program_info: MainProgramInfo {
@@ -290,6 +290,7 @@ impl Ebpf {
             .unwrap();
     }
     pub fn set_rules(&mut self, rules: HashMap<String, crate::rule::Rule>) {
+        let mut addr_rule_map: HashMap<String, u32> = HashMap::new();
         for (rule_id, (r_name, r)) in rules.into_iter().enumerate() {
             let mut v4_rules = Vec::new();
             let mut v6_rules = Vec::new();
@@ -304,6 +305,7 @@ impl Ebpf {
             let mut path = [0u8; 128];
             let path_len = r.path.len() as u8;
             if !r.path.is_empty() {
+                addr_rule_map.insert(r.path.clone(), rule_id as u32);
                 path[..r.path.len().min(128)].copy_from_slice(r.path.as_bytes());
             }
 
@@ -358,6 +360,26 @@ impl Ebpf {
                 path_map.insert(&pkk, rule_id as u32, 0).unwrap();
             }
         }
+        // addr_rule_map;
+        let mut current_path_pid_map: HashMap<u32, u32> = HashMap::new();
+        for p in procfs::process::all_processes().unwrap() {
+            let Ok(p) = p else { continue };
+            let running_process_path = p.exe().unwrap_or_default();
+            let running_process_id = p.pid();
+            for (path, rule_id) in addr_rule_map.iter() {
+                if running_process_path.starts_with(path) {
+                    current_path_pid_map.insert(running_process_id as u32, *rule_id);
+                }
+            }
+        }
+        if !current_path_pid_map.is_empty() {
+            let mut pid_rule_map: aya::maps::HashMap<&mut aya::maps::MapData, u32, u32> =
+                aya::maps::HashMap::try_from(self.inner.map_mut("PID_RULE_MAP").unwrap()).unwrap();
+            for (pid, rule_id) in current_path_pid_map.iter() {
+                pid_rule_map.insert(pid, rule_id, 0).unwrap();
+            }
+        }
+        // PID_RULE_MAP
     }
     pub fn load_cgroups(&mut self) {
         let program: &mut TracePoint = self
