@@ -1,9 +1,29 @@
-use ebpf_common::{_Rule, Action, RuleV4, RuleV6, u128_to_u32_array};
+use ebpf_common::{_Rule, RuleV4, RuleV6, u128_to_u32_array};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 fn default<T: Default + PartialEq>(t: &T) -> bool {
     *t == Default::default()
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone, Copy)]
+pub enum Action {
+    #[default]
+    Allow,
+    Deny,
+    Forward,
+    Proxy,
+}
+
+impl From<Action> for ebpf_common::Action {
+    fn from(value: Action) -> Self {
+        match value {
+            Action::Allow => ebpf_common::Action::Allow,
+            Action::Deny => ebpf_common::Action::Deny,
+            Action::Forward => ebpf_common::Action::Forward,
+            Action::Proxy => ebpf_common::Action::Proxy,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]

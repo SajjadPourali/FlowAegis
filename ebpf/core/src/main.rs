@@ -12,6 +12,5 @@ pub static PID_RULE_MAP: LruHashMap<u32, u32> = LruHashMap::with_max_entries(102
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    // loop {}
     unsafe { core::hint::unreachable_unchecked() }
 }

@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aya = { workspace = true, optional = true }
-serde = { workspace = true, default-features = false, features = ["derive"] }
+aya = { workspace = true, default-features = false, optional = true }
+
 [lib]
 path = "src/lib.rs"
 

@@ -303,10 +303,10 @@ impl Ebpf {
             let mut v6_rules = Vec::new();
             let mut path_keys = Vec::new();
 
-            self.rule_names.push((r_name, r.action));
+            self.rule_names.push((r_name, r.action.into()));
             let value = LpmValue {
                 rule_id: rule_id as u32,
-                action: r.action,
+                action: r.action.into(),
             };
             let path_flags = (!r.uid.is_empty()) as u16;
             let mut path = [0u8; 128];

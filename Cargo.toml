@@ -27,3 +27,9 @@ procfs = { version = "0.17", default-features = false }
 [profile.release.package.ebpf-core]
 debug = 2
 codegen-units = 1
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

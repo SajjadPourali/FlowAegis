@@ -30,9 +30,8 @@ unsafe impl aya::Pod for MainProgramInfo {}
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use core::net::{SocketAddrV4, SocketAddrV6};
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Action {
     #[default]
     Allow,
