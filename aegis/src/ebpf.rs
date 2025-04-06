@@ -184,7 +184,7 @@ pub struct AsyncPerfEventArrayStream<T> {
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T> AsyncPerfEventArrayStream<T> {
+impl<T: 'static> AsyncPerfEventArrayStream<T> {
     pub fn new(map: aya::maps::Map) -> Self {
         let mut async_perf_event_array = AsyncPerfEventArray::try_from(map).unwrap();
         let mut streams: Vec<Pin<Box<dyn Stream<Item = T>>>> = Vec::new();
@@ -193,18 +193,25 @@ impl<T> AsyncPerfEventArrayStream<T> {
             let buf = (0..10)
                 .map(|_| BytesMut::with_capacity(1024))
                 .collect::<Vec<_>>();
+            let remaning = Vec::new();
             streams.push(Box::pin(stream::unfold::<_, _, _, T>(
-                (async_perf_event_array_buffer, buf),
-                move |(mut async_perf_event_array_buffer, mut buf)| async {
+                (async_perf_event_array_buffer, buf, remaning),
+                move |(mut async_perf_event_array_buffer, mut buf, mut remaning)| async {
+                    if let Some(t) = remaning.pop() {
+                        return Some((t, (async_perf_event_array_buffer, buf, remaning)));
+                    }
                     let events = async_perf_event_array_buffer
                         .read_events(&mut buf)
                         .await
                         .unwrap();
-                    for i in 0..events.read {
-                        let b = &mut buf[i];
+                    for b in buf.iter_mut().take(events.read) {
                         let tuple = unsafe { ptr::read_unaligned(b.as_ptr() as *const T) };
-                        return Some((tuple, (async_perf_event_array_buffer, buf)));
+                        remaning.push(tuple);
                     }
+                    if let Some(t) = remaning.pop() {
+                        return Some((t, (async_perf_event_array_buffer, buf, remaning)));
+                    }
+
                     None
                 },
             )));
@@ -333,12 +340,12 @@ impl Ebpf {
             let mut v4: aya::maps::LpmTrie<&mut aya::maps::MapData, ebpf_common::RuleV4, LpmValue> =
                 aya::maps::LpmTrie::try_from(self.inner.map_mut("V4_RULES").unwrap()).unwrap();
             for (k, v) in &v4_rules {
-                v4.insert(&k, v, 0).unwrap();
+                v4.insert(k, v, 0).unwrap();
             }
             let mut v6: aya::maps::LpmTrie<&mut aya::maps::MapData, ebpf_common::RuleV6, LpmValue> =
                 aya::maps::LpmTrie::try_from(self.inner.map_mut("V6_RULES").unwrap()).unwrap();
             for (k, v) in &v6_rules {
-                v6.insert(&k, v, 0).unwrap();
+                v6.insert(k, v, 0).unwrap();
             }
             let mut path_map: aya::maps::LpmTrie<
                 &mut aya::maps::MapData,

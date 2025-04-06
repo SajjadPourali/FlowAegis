@@ -1,9 +1,6 @@
 use ebpf_common::{_Rule, Action, RuleV4, RuleV6, u128_to_u32_array};
 use serde::{Deserialize, Serialize};
-use std::{
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    u32,
-};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 fn default<T: Default + PartialEq>(t: &T) -> bool {
     *t == Default::default()

@@ -134,14 +134,14 @@ async fn main() -> Result<(), error::AegisError> {
                             Ok(conn) => conn,
                             Err(e) => {
                                 warn!("{}", e);
-                                return ();
+                                return;
                             }
                         };
                         let proxy_stream = match proxy_stream.connect(conn, msg.dst).await {
                             Ok(proxy_stream) => proxy_stream,
                             Err(e) => {
                                 warn!("{}", e);
-                                return ();
+                                return;
                             }
                         };
                         if let Err(e) = async_forward(proxy_stream, stream).await {
@@ -165,14 +165,14 @@ async fn main() -> Result<(), error::AegisError> {
                             Ok(conn) => conn,
                             Err(e) => {
                                 warn!("{}", e);
-                                return ();
+                                return;
                             }
                         };
                         let proxy_stream = match proxy_stream.connect(conn, dst).await {
                             Ok(proxy_stream) => proxy_stream,
                             Err(e) => {
                                 warn!("{}", e);
-                                return ();
+                                return;
                             }
                         };
                         if let Err(e) = async_forward(proxy_stream, stream).await {
