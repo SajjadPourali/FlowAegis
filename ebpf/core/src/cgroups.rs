@@ -38,7 +38,7 @@ pub fn set_socket_mark(bpf_socket: *mut core::ffi::c_void, tag: u32) {
         aya_ebpf::helpers::r#gen::bpf_setsockopt(
             bpf_socket,
             aya_ebpf::bindings::SOL_SOCKET as i32,
-            aya_ebpf::bindings::SO_MARK as i32,
+            aya_ebpf::bindings::SO_PRIORITY as i32,
             &tag as *const _ as *mut core::ffi::c_void,
             core::mem::size_of_val(&tag) as i32,
         );
@@ -53,7 +53,7 @@ pub fn get_socket_mark(bpf_socket: *mut core::ffi::c_void) -> u32 {
         aya_ebpf::helpers::r#gen::bpf_getsockopt(
             bpf_socket,
             aya_ebpf::bindings::SOL_SOCKET as i32,
-            aya_ebpf::bindings::SO_MARK as i32,
+            aya_ebpf::bindings::SO_PRIORITY as i32,
             &mut tag as *mut _ as *mut core::ffi::c_void,
             tag_size,
         );
