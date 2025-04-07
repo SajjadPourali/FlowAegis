@@ -24,12 +24,7 @@ futures = { version = "0.3.31", default-features = false }
 proxy-stream = { version = "0.0.2", default-features = false }
 thiserror = { version = "2.0", default-features = false }
 procfs = { version = "0.17", default-features = false }
+clap_lex = { version = "0.7.4", default-features = false }
 [profile.release.package.ebpf-core]
 debug = 2
 codegen-units = 1
-
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-panic = "abort"

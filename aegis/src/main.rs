@@ -1,3 +1,4 @@
+use args::Args;
 use ebpf::{Ebpf, EbpfMessageAction};
 use futures::{StreamExt, future};
 use log::warn;
@@ -5,8 +6,7 @@ use network::async_forward;
 use proxy::Proxy;
 use proxy_stream::{ProxyStream, ProxyType};
 use std::{
-    collections::HashMap,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    collections::HashMap, env, net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6}
 };
 // use aya_log::EbpfLogger;
 
@@ -18,6 +18,7 @@ mod ebpf;
 mod error;
 mod proxy;
 mod rule;
+mod args;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     proxy_address_ipv4: SocketAddrV4,
@@ -31,6 +32,7 @@ mod network;
 
 #[tokio::main]
 async fn main() -> Result<(), error::AegisError> {
+    let args = Args::parse(env::args())?;
     let mut proxy = Proxy::new(
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
         SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
