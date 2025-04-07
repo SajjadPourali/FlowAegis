@@ -18,4 +18,6 @@ pub enum AegisError {
     InvalidConfigPath,
     #[error("Error: argument {0} is required")]
     RequiredValue(&'static str),
+    #[error("Error: argument {0} is invalid")]
+    InvalidValue(&'static str),
 }
