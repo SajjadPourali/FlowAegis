@@ -26,15 +26,10 @@ pub enum ArgCommands {
     Deny(()),
 }
 
-
 impl SubCommands {
     pub fn new(arg: &str) -> Result<Self, AegisError> {
-        let mut types: HashMap<&str, usize> = HashMap::from([
-            ("forward", 0),
-            ("allow", 0),
-            ("deny", 0),
-            ("proxy", 0),
-        ]);
+        let mut types: HashMap<&str, usize> =
+            HashMap::from([("forward", 0), ("allow", 0), ("deny", 0), ("proxy", 0)]);
         for (i, c) in arg.chars().enumerate() {
             for (type_name, type_value) in types.iter_mut() {
                 if *type_value == i && arg.len() <= type_name.len() {
@@ -66,12 +61,10 @@ impl SubCommands {
     }
 }
 
-
 impl Args {
     pub fn parse(
         raw: impl IntoIterator<Item = impl Into<std::ffi::OsString>>,
     ) -> Result<Self, AegisError> {
-        
         let raw = clap_lex::RawArgs::new(raw);
         let mut cursor = raw.cursor();
         raw.next(&mut cursor);
@@ -131,10 +124,8 @@ impl Args {
             break arg;
         };
         return Err(AegisError::Encoding);
-
     }
     // pub fn take_conf_path(&mut self) -> Option<String> {
     //     self.config_path.take()
     // }
 }
-

@@ -6,7 +6,9 @@ use network::async_forward;
 use proxy::Proxy;
 use proxy_stream::{ProxyStream, ProxyType};
 use std::{
-    collections::HashMap, env, net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6}
+    collections::HashMap,
+    env,
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
 };
 // use aya_log::EbpfLogger;
 
@@ -14,11 +16,11 @@ use rule::Rule;
 
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncReadExt, net::TcpStream};
+mod args;
 mod ebpf;
 mod error;
 mod proxy;
 mod rule;
-mod args;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     proxy_address_ipv4: SocketAddrV4,
