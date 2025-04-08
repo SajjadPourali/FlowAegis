@@ -95,6 +95,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     let bpf_sock_addr = unsafe { *ctx.sock_addr };
     let uid = ctx.uid();
     let pid = ctx.pid();
+    let gid = ctx.gid();
     let tgid = ctx.tgid();
 
     if bpf_sock_addr.protocol != 6 || main_program_info.pid == tgid {
@@ -151,11 +152,32 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
             break;
         }
     }
-
+    if matches!(action, Action::Deny) {
+        NETWORK_TUPLE.output(
+            &ctx,
+            &NetworkTuple {
+                src: SocketAddrCompat {
+                    ip: [0u32; 4],
+                    port: 0,
+                    is_ipv6: false,
+                },
+                dst: addr,
+                actual_dst: addr,
+                transport: u32::MAX,
+                uid,
+                gid,
+                pid,
+                tgid,
+                rule: rule_id,
+            },
+            0,
+        );
+        return 0;
+    }
     let mut cgroup_info = unsafe { core::mem::zeroed::<CgroupInfo>() };
     cgroup_info.dst = addr;
     cgroup_info.uid = uid;
-    cgroup_info.gid = ctx.gid();
+    cgroup_info.gid = gid;
     cgroup_info.pid = pid;
     cgroup_info.tgid = tgid;
     cgroup_info.rule = rule_id;
@@ -211,6 +233,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
 
     let bpf_sock_addr = unsafe { *ctx.sock_addr };
     let uid = ctx.uid();
+    let gid = ctx.gid();
     let pid = ctx.pid();
     let tgid = ctx.tgid();
 
@@ -273,11 +296,32 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
             break;
         }
     }
-
+    if matches!(action, Action::Deny) {
+        NETWORK_TUPLE.output(
+            &ctx,
+            &NetworkTuple {
+                src: SocketAddrCompat {
+                    ip: [0u32; 4],
+                    port: 0,
+                    is_ipv6: true,
+                },
+                dst: addr,
+                actual_dst: addr,
+                transport: u32::MAX,
+                uid,
+                gid,
+                pid,
+                tgid,
+                rule: rule_id,
+            },
+            0,
+        );
+        return 0;
+    }
     let mut cgroup_info = unsafe { core::mem::zeroed::<CgroupInfo>() };
     cgroup_info.dst = addr;
     cgroup_info.uid = uid;
-    cgroup_info.gid = ctx.gid();
+    cgroup_info.gid = gid;
     cgroup_info.pid = pid;
     cgroup_info.tgid = tgid;
     cgroup_info.rule = rule_id;
@@ -338,6 +382,7 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
     let Some(cgroup_info) = unmark_socket(ctx.ops as *mut core::ffi::c_void) else {
         return 1;
     };
+
     if ctx.op() != 4 {
         // BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB
         return 0;
@@ -393,7 +438,7 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
             },
         )
     } else {
-        return 0;
+        return 1;
     };
     NETWORK_TUPLE.output(
         &ctx,
@@ -410,5 +455,5 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
         },
         0,
     );
-    0
+    1
 }

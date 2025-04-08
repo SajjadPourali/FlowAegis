@@ -42,10 +42,10 @@ pub struct Rule {
     pub uid: Vec<u32>,
     #[serde(default)]
     #[serde(skip_serializing_if = "default")]
-    pub path: String,
+    pub path: Option<String>,
     #[serde(default)]
     #[serde(skip_serializing_if = "default")]
-    pub transport: String,
+    pub transport: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -67,7 +67,7 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
             flags |= 1;
             value.uid
         };
-        if !value.path.is_empty() {
+        if value.path.is_some() {
             flags |= 4;
         }
         for port in ports {
@@ -151,6 +151,6 @@ impl From<Host> for ebpf_common::Host {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Transport {
-    pub ipv4: SocketAddrV4,
-    pub ipv6: SocketAddrV6,
+    pub ipv4: Option<SocketAddrV4>,
+    pub ipv6: Option<SocketAddrV6>,
 }

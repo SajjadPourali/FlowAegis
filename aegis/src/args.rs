@@ -23,7 +23,7 @@ enum SubCommands {
 }
 
 #[derive(Debug)]
-pub struct Args(ArgCommands);
+pub struct Args(pub ArgCommands);
 
 #[derive(Debug)]
 pub enum ArgCommands {

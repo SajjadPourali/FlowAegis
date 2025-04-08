@@ -12,7 +12,7 @@ use std::{
 };
 // use aya_log::EbpfLogger;
 
-use rule::{Rule, Transport};
+use rule::{Action, Rule, Transport};
 
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncReadExt, net::TcpStream};
@@ -23,18 +23,113 @@ mod proxy;
 mod rule;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
-    // proxy_address_ipv4: SocketAddrV4,
-    // forward_address_ipv4: SocketAddrV4,
-    // proxy_address_ipv6: SocketAddrV6,
-    // forward_address_ipv6: SocketAddrV6,
     transport: HashMap<String, Transport>,
     rules: HashMap<String, Rule>,
+}
+
+impl Config {
+    pub async fn load(Args(args): Args) -> Result<Self, error::AegisError> {
+        let mut config = Config {
+            transport: HashMap::new(),
+            rules: HashMap::new(),
+        };
+        let mut rule = Rule {
+            action: Action::Allow,
+            ipv4: None,
+            ipv6: None,
+            port: Vec::new(),
+            uid: Vec::new(),
+            path: None,
+            transport: None,
+        };
+        match args {
+            args::ArgCommands::Forward(forward_args) => {
+                let mut transport = Transport {
+                    ipv4: None,
+                    ipv6: None,
+                };
+
+                if let Some((ip, prefix, t)) = forward_args.v4 {
+                    transport.ipv4 = Some(t);
+                    rule.ipv4 = Some((ip, prefix));
+                }
+                if let Some((ip, prefix, t)) = forward_args.v6 {
+                    transport.ipv6 = Some(t);
+                    rule.ipv6 = Some((ip, prefix));
+                }
+                rule.port = forward_args.port;
+                rule.uid = forward_args.uid;
+                rule.path = forward_args.directory;
+                if transport.ipv4.is_some() || transport.ipv6.is_some() {
+                    let transport_name = "arg".to_string();
+                    config.transport.insert(transport_name.clone(), transport);
+                    rule.transport = Some(transport_name);
+                }
+            }
+            args::ArgCommands::Proxy(proxy_args) => {
+                let mut transport = Transport {
+                    ipv4: None,
+                    ipv6: None,
+                };
+
+                if let Some((ip, prefix, t)) = proxy_args.v4 {
+                    transport.ipv4 = Some(t);
+                    rule.ipv4 = Some((ip, prefix));
+                }
+                if let Some((ip, prefix, t)) = proxy_args.v6 {
+                    transport.ipv6 = Some(t);
+                    rule.ipv6 = Some((ip, prefix));
+                }
+                rule.port = proxy_args.port;
+                rule.uid = proxy_args.uid;
+                rule.path = proxy_args.directory;
+                if transport.ipv4.is_some() || transport.ipv6.is_some() {
+                    let transport_name = "arg".to_string();
+                    config.transport.insert(transport_name.clone(), transport);
+                    rule.transport = Some(transport_name);
+                }
+            }
+            args::ArgCommands::Allow(allow_args) => {
+                rule.action = Action::Allow;
+                if let Some((ip, prefix)) = allow_args.v4 {
+                    rule.ipv4 = Some((ip, prefix));
+                }
+                if let Some((ip, prefix)) = allow_args.v6 {
+                    rule.ipv6 = Some((ip, prefix));
+                }
+                rule.port = allow_args.port;
+                rule.uid = allow_args.uid;
+                rule.path = allow_args.directory;
+            }
+            args::ArgCommands::Deny(deny_args) => {
+                rule.action = Action::Deny;
+                if let Some((ip, prefix)) = deny_args.v4 {
+                    rule.ipv4 = Some((ip, prefix));
+                }
+                if let Some((ip, prefix)) = deny_args.v6 {
+                    rule.ipv6 = Some((ip, prefix));
+                }
+                rule.port = deny_args.port;
+                rule.uid = deny_args.uid;
+                rule.path = deny_args.directory;
+            }
+            args::ArgCommands::Import(path) => {
+                let mut config_file = tokio::fs::File::open(path).await?;
+                let mut rules = String::new();
+                config_file.read_to_string(&mut rules).await?;
+                return Ok(toml::from_str(&rules)?);
+            }
+        }
+        config.rules.insert("arg".to_string(), rule);
+        return Ok(config);
+    }
 }
 
 mod network;
 
 #[tokio::main]
 async fn main() -> Result<(), error::AegisError> {
+    let args = args::Args::parse(env::args()).unwrap();
     let mut proxy = Proxy::new(
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
         SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
