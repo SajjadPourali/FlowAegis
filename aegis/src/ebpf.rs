@@ -79,9 +79,7 @@ impl Stream for EbpfMessageStream {
                             Action::Deny => EbpfMessageAction::Deny(rule_name.to_owned()),
                             Action::Forward => EbpfMessageAction::Forward(rule_name.to_owned()),
                             Action::Proxy => {
-                                if let Some(t) =
-                                    self.transports.get(&(network_tuple.transport as u32))
-                                {
+                                if let Some(t) = self.transports.get(&{ network_tuple.transport }) {
                                     dst = *t;
                                 };
                                 EbpfMessageAction::Proxy(rule_name.to_owned())
@@ -328,9 +326,7 @@ impl Ebpf {
             aya::maps::Array::try_from(self.inner.map_mut("TRANSPORT").unwrap()).unwrap();
         for (transport_id, (transport_name, transport)) in transport_map.into_iter().enumerate() {
             let transport_id = transport_id as u32;
-            transport_bpf_map
-                .set(transport_id, transport.clone(), 0)
-                .unwrap();
+            transport_bpf_map.set(transport_id, transport, 0).unwrap();
             self.transport_names.insert(transport_name, transport_id);
             self.transports
                 .insert(transport_id, transport.to_socket_addr());
@@ -402,7 +398,7 @@ impl Ebpf {
                             key,
                             LpmValue {
                                 rule_id: rule_id as u32,
-                                transport_id: transport_id,
+                                transport_id,
                                 action,
                             },
                         ));

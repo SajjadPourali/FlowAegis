@@ -122,7 +122,7 @@ pub struct CgroupInfo {
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone,Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct SocketAddrCompat {
     pub ip: [u32; 4],
     pub port: u16,

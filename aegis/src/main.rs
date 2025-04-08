@@ -44,6 +44,7 @@ impl Config {
         };
         match args {
             args::ArgCommands::Forward(forward_args) => {
+                rule.action = Action::Forward;
                 let mut transport = Transport {
                     ipv4: None,
                     ipv6: None,
@@ -67,6 +68,7 @@ impl Config {
                 }
             }
             args::ArgCommands::Proxy(proxy_args) => {
+                rule.action = Action::Proxy;
                 let mut transport = Transport {
                     ipv4: None,
                     ipv6: None,
@@ -121,7 +123,7 @@ impl Config {
             }
         }
         config.rules.insert("arg".to_string(), rule);
-        return Ok(config);
+        Ok(config)
     }
 }
 
@@ -129,7 +131,7 @@ mod network;
 
 #[tokio::main]
 async fn main() -> Result<(), error::AegisError> {
-    let args = args::Args::parse(env::args()).unwrap();
+    let config = Config::load(args::Args::parse(env::args()).unwrap()).await?;
     let mut proxy = Proxy::new(
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
         SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
@@ -139,15 +141,8 @@ async fn main() -> Result<(), error::AegisError> {
     env_logger::init();
     log::info!("starting up");
 
-    let mut config_file = tokio::fs::File::open("config.toml").await?;
-    let mut rules = String::new();
-    config_file.read_to_string(&mut rules).await?;
-    let config: Config = toml::from_str(&rules)?;
-
     let mut ebpf = Ebpf::new()?;
-    // ebpf.set_forward_v4_address(config.forward_address_ipv4);
     ebpf.set_proxy_v4_address(proxy.get_local_address_v4()?);
-    // ebpf.set_forward_v6_address(config.forward_address_ipv6);
     ebpf.set_proxy_v6_address(proxy.get_local_address_v6()?);
     ebpf.set_transports(config.transport);
     ebpf.set_rules(config.rules);
@@ -226,11 +221,7 @@ async fn main() -> Result<(), error::AegisError> {
                     if let Some(stream) = socket_address_map.remove(&msg.src) {
                         let proxy_stream = ProxyStream::new(ProxyType::SOCKS5);
                         tokio::spawn(async move {
-                            let conn = if msg.dst.is_ipv4() {
-                                TcpStream::connect(msg.dst).await // proxy address
-                            } else {
-                                TcpStream::connect(msg.dst).await
-                            };
+                            let conn = TcpStream::connect(msg.dst).await;
                             let conn = match conn {
                                 Ok(conn) => conn,
                                 Err(e) => {
@@ -260,11 +251,7 @@ async fn main() -> Result<(), error::AegisError> {
                 if let Some((dst, actual_dst)) = proxy_address_map.remove(&addr) {
                     let proxy_stream = ProxyStream::new(ProxyType::SOCKS5);
                     tokio::spawn(async move {
-                        let conn = if addr.ip().is_ipv4() {
-                            TcpStream::connect(dst).await // proxy address
-                        } else {
-                            TcpStream::connect(dst).await
-                        };
+                        let conn = TcpStream::connect(dst).await;
                         let conn = match conn {
                             Ok(conn) => conn,
                             Err(e) => {

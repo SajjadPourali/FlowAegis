@@ -119,7 +119,7 @@ impl Args {
                 print!("{}", HELP);
                 process::exit(0x0);
             };
-            if let Some((long, value)) = arg.to_long() {
+            if let Some((long, _value)) = arg.to_long() {
                 match long {
                     Ok("help") => {
                         print!("{}", HELP);
