@@ -175,7 +175,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
             };
             unsafe {
                 (*ctx.sock_addr).user_ip4 = socket.ip[3];
-                (*ctx.sock_addr).user_port = (socket.port as u32).swap_bytes();
+                (*ctx.sock_addr).user_port = socket.port.swap_bytes() as u32;
                 1
             }
         } // Action::Forward => unsafe {
@@ -281,10 +281,10 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
                 return 0;
             };
             unsafe {
-                (*ctx.sock_addr).user_ip6[0] = socket.ip[0].swap_bytes();
-                (*ctx.sock_addr).user_ip6[1] = socket.ip[1].swap_bytes();
-                (*ctx.sock_addr).user_ip6[2] = socket.ip[2].swap_bytes();
-                (*ctx.sock_addr).user_ip6[3] = socket.ip[3].swap_bytes();
+                (*ctx.sock_addr).user_ip6[0] = socket.ip[0];//.swap_bytes();
+                (*ctx.sock_addr).user_ip6[1] = socket.ip[1];//.swap_bytes();
+                (*ctx.sock_addr).user_ip6[2] = socket.ip[2];//.swap_bytes();
+                (*ctx.sock_addr).user_ip6[3] = socket.ip[3];//.swap_bytes();
                 (*ctx.sock_addr).user_port = socket.port.swap_bytes() as u32;
                 1
             }

@@ -132,12 +132,11 @@ async fn main() -> Result<(), error::AegisError> {
                 if matches!(msg.action, EbpfMessageAction::Proxy(_)) {
                     if let Some(stream) = socket_address_map.remove(&msg.src) {
                         let proxy_stream = ProxyStream::new(ProxyType::SOCKS5);
-                        let transport_addr = msg.transport.unwrap().to_socket_addr();
                         tokio::spawn(async move {
                             let conn = if msg.dst.is_ipv4() {
-                                TcpStream::connect(transport_addr).await
+                                TcpStream::connect(msg.dst).await
                             } else {
-                                TcpStream::connect(transport_addr).await
+                                TcpStream::connect(msg.dst).await
                             };
                             let conn = match conn {
                                 Ok(conn) => conn,
@@ -158,19 +157,20 @@ async fn main() -> Result<(), error::AegisError> {
                             }
                         });
                     } else {
-                        proxy_address_map
-                            .insert(msg.src, (msg.dst, msg.transport.unwrap().to_socket_addr()));
+                        // dbg!(msg.dst);
+                        // dbg!(msg.transport);
+                        proxy_address_map.insert(msg.src, msg.dst);
                     }
                 }
             }
             future::Either::Right((Some(Ok((stream, addr))), _)) => {
-                if let Some((dst, transport_addr)) = proxy_address_map.remove(&addr) {
+                if let Some(dst) = proxy_address_map.remove(&addr) {
                     let proxy_stream = ProxyStream::new(ProxyType::SOCKS5);
                     tokio::spawn(async move {
                         let conn = if addr.ip().is_ipv4() {
-                            TcpStream::connect(transport_addr).await
+                            TcpStream::connect(dst).await
                         } else {
-                            TcpStream::connect(transport_addr).await
+                            TcpStream::connect(dst).await
                         };
                         let conn = match conn {
                             Ok(conn) => conn,

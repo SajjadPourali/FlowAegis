@@ -79,7 +79,6 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
                             port,
                             uid: *uid,
                             dst: ip_addr.to_bits(),
-                            transport_id: 0,
                         }),
                         prefix,
                     ))
@@ -90,7 +89,6 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
                             port,
                             uid: *uid,
                             dst: 0,
-                            transport_id: 0,
                         }),
                         0,
                     ));
@@ -102,7 +100,6 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
                             port,
                             uid: *uid,
                             dst: u128_to_u32_array(ip_addr.to_bits()),
-                            transport_id: 0,
                         }),
                         prefix,
                     ))
@@ -113,7 +110,6 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
                             port,
                             uid: *uid,
                             dst: [0; 4],
-                            transport_id: 0,
                         }),
                         0,
                     ));

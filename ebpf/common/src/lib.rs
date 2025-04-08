@@ -166,7 +166,6 @@ pub struct RuleV4 {
     pub uid: u32,
     // pub pid: u32,
     pub dst: u32,
-    pub transport_id: u32,
 }
 
 #[repr(C)]
@@ -177,7 +176,6 @@ pub struct RuleV6 {
     pub uid: u32,
     // pub pid: u32,
     pub dst: [u32; 4],
-    pub transport_id: u32,
 }
 
 #[cfg(feature = "user")]
