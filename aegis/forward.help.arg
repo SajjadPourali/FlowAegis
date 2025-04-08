@@ -1,0 +1,44 @@
+Redirect network traffic to a designated destination.
+
+Usage:
+  flowaegis forward [options]
+
+Description:
+  The 'forward' command redirects outbound traffic to a specified 
+  destination without proxying it. It supports redirection based on 
+  IP subnets, destination ports, user identifiers, or originating 
+  process directories.
+
+  Either the --ipv4 or --ipv6 option must be specified.
+
+Examples:
+  flowaegis forward -4 192.168.1.0/24=192.168.2.2:8080
+  flowaegis forward -6 fd00::/64=[fdff::1]:8080
+  flowaegis forward -d /usr/bin/ -p 80,443
+
+Options:
+  -4, --ipv4=<ADDR|CIDR>=<ADDR:PORT>  
+      Specify an IPv4 subnet and its corresponding forwarding target. 
+      Example: 192.168.1.0/24=192.168.2.2:8080
+
+  -6, --ipv6=<ADDR|CIDR>=<ADDR:PORT>  
+      Specify an IPv6 subnet and its corresponding forwarding target. 
+      Example: fd00::/64=[fdff::1]:8080
+
+  -p, --port=<port[,port,...]>        
+      Comma-separated list of destination ports to proxy.
+      Example: 80,443
+
+  -u, --uid=<UID[,UID,...]>           
+      Proxy only traffic originating from the specified user 
+      IDs. Multiple user IDs should be comma-separated. 
+      Example: 1001,1002
+
+  -d, --directory=<path>              
+      Proxy only traffic from processes launched within the
+      specified directory.
+      Example: /usr/bin/
+  
+  -h, --help
+  Print help information.
+  

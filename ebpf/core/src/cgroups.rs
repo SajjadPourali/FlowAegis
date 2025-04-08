@@ -6,12 +6,9 @@ use aya_ebpf::{
     programs::{SockAddrContext, SockOpsContext},
 };
 
-// use aya_log_ebpf::info;
+use aya_log_ebpf::info;
 
-use ebpf_common::{
-    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, SocketAddrCompat,
-    u128_to_u32_array,
-};
+use ebpf_common::{Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, SocketAddrCompat};
 
 use crate::PID_RULE_MAP;
 
@@ -23,6 +20,9 @@ pub static V6_RULES: LpmTrie<ebpf_common::RuleV6, LpmValue> = LpmTrie::with_max_
 
 #[map]
 pub static MAIN_APP_INFO: Array<MainProgramInfo> = Array::with_max_entries(100, 0);
+
+#[map]
+pub static TRANSPORT: Array<SocketAddrCompat> = Array::with_max_entries(100, 0);
 
 #[map]
 pub static NETWORK_TUPLE: PerfEventArray<NetworkTuple> = PerfEventArray::new(0);
@@ -109,7 +109,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
 
     let mut rule_id = u32::MAX;
     let mut action = Action::Allow;
-
+    let mut transport_id = 0;
     let mut r4 = unsafe { core::mem::zeroed::<ebpf_common::RuleV4>() };
     let base_offset = ((core::mem::size_of_val(&r4) - 4) * 8) as u32;
     r4.dst = ip[3].swap_bytes();
@@ -130,9 +130,10 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
             if (flags & 4) == 4 {
                 // has path
                 if let Some(rid) = unsafe { PID_RULE_MAP.get(&tgid) } {
-                    if rid == &v.rule_id {
+                    if rid == &(v.rule_id as u32) {
                         rule_id = v.rule_id;
                         action = v.action;
+                        transport_id = v.transport_id;
                         break;
                     }
                 }
@@ -141,6 +142,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
             }
             rule_id = v.rule_id;
             action = v.action;
+            transport_id = v.transport_id;
             break;
         }
     }
@@ -163,24 +165,26 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         ctx.sock_addr as *const _ as *mut core::ffi::c_void,
         cgroup_info,
     );
-
+    info!(&ctx, "connect4: {} {}", transport_id, rule_id);
     match action {
         Action::Deny => 0,
         Action::Allow => 1,
-        Action::Proxy => unsafe {
-            (*ctx.sock_addr).user_ip4 =
-                u32::from_ne_bytes(main_program_info.proxy_v4_address.ip().octets());
-            (*ctx.sock_addr).user_port =
-                main_program_info.proxy_v4_address.port().swap_bytes() as u32;
-            1
-        },
-        Action::Forward => unsafe {
-            (*ctx.sock_addr).user_ip4 =
-                u32::from_ne_bytes(main_program_info.forward_v4_address.ip().octets());
-            (*ctx.sock_addr).user_port =
-                main_program_info.forward_v4_address.port().swap_bytes() as u32;
-            1
-        },
+        Action::Proxy | Action::Forward => {
+            let Some(socket) = TRANSPORT.get(transport_id) else {
+                return 0;
+            };
+            unsafe {
+                (*ctx.sock_addr).user_ip4 = socket.ip[3];
+                (*ctx.sock_addr).user_port = (socket.port as u32).swap_bytes();
+                1
+            }
+        } // Action::Forward => unsafe {
+          //     (*ctx.sock_addr).user_ip4 =
+          //         u32::from_ne_bytes(main_program_info.forward_v4_address.ip().octets());
+          //     (*ctx.sock_addr).user_port =
+          //         main_program_info.forward_v4_address.port().swap_bytes() as u32;
+          //     1
+          // },
     }
 }
 
@@ -216,7 +220,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
 
     let mut rule_id = u32::MAX;
     let mut action = Action::Allow;
-
+    let mut transport_id = 0;
     let mut r6 = unsafe { core::mem::zeroed::<ebpf_common::RuleV6>() };
     let base_offset = ((core::mem::size_of_val(&r6) - 4) * 8) as u32;
     r6.dst = ip;
@@ -238,9 +242,10 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
             if (flags & 4) == 4 {
                 // has path
                 if let Some(rid) = unsafe { PID_RULE_MAP.get(&tgid) } {
-                    if rid == &v.rule_id {
+                    if rid == &(v.rule_id as u32) {
                         rule_id = v.rule_id;
                         action = v.action;
+                        transport_id = v.transport_id;
                         break;
                     }
                 }
@@ -249,6 +254,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
             }
             rule_id = v.rule_id;
             action = v.action;
+            transport_id = v.transport_id;
             break;
         }
     }
@@ -270,26 +276,28 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     match action {
         Action::Deny => 0,
         Action::Allow => 1,
-        Action::Proxy => unsafe {
-            let ipv6 = u128_to_u32_array(main_program_info.proxy_v6_address.ip().to_bits());
-            (*ctx.sock_addr).user_ip6[0] = ipv6[0].swap_bytes();
-            (*ctx.sock_addr).user_ip6[1] = ipv6[1].swap_bytes();
-            (*ctx.sock_addr).user_ip6[2] = ipv6[2].swap_bytes();
-            (*ctx.sock_addr).user_ip6[3] = ipv6[3].swap_bytes();
-            (*ctx.sock_addr).user_port =
-                main_program_info.proxy_v6_address.port().swap_bytes() as u32;
-            1
-        },
-        Action::Forward => unsafe {
-            let ipv6 = u128_to_u32_array(main_program_info.forward_v6_address.ip().to_bits());
-            (*ctx.sock_addr).user_ip6[0] = ipv6[0].swap_bytes();
-            (*ctx.sock_addr).user_ip6[1] = ipv6[1].swap_bytes();
-            (*ctx.sock_addr).user_ip6[2] = ipv6[2].swap_bytes();
-            (*ctx.sock_addr).user_ip6[3] = ipv6[3].swap_bytes();
-            (*ctx.sock_addr).user_port =
-                main_program_info.forward_v6_address.port().swap_bytes() as u32;
-            1
-        },
+        Action::Proxy | Action::Forward => {
+            let Some(socket) = TRANSPORT.get(transport_id) else {
+                return 0;
+            };
+            unsafe {
+                (*ctx.sock_addr).user_ip6[0] = socket.ip[0].swap_bytes();
+                (*ctx.sock_addr).user_ip6[1] = socket.ip[1].swap_bytes();
+                (*ctx.sock_addr).user_ip6[2] = socket.ip[2].swap_bytes();
+                (*ctx.sock_addr).user_ip6[3] = socket.ip[3].swap_bytes();
+                (*ctx.sock_addr).user_port = socket.port.swap_bytes() as u32;
+                1
+            }
+        } // Action::Forward => unsafe {
+          //     let ipv6 = u128_to_u32_array(main_program_info.forward_v6_address.ip().to_bits());
+          //     (*ctx.sock_addr).user_ip6[0] = ipv6[0].swap_bytes();
+          //     (*ctx.sock_addr).user_ip6[1] = ipv6[1].swap_bytes();
+          //     (*ctx.sock_addr).user_ip6[2] = ipv6[2].swap_bytes();
+          //     (*ctx.sock_addr).user_ip6[3] = ipv6[3].swap_bytes();
+          //     (*ctx.sock_addr).user_port =
+          //         main_program_info.forward_v6_address.port().swap_bytes() as u32;
+          //     1
+          // },
     }
 }
 

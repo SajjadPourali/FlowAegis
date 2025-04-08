@@ -1,2 +1,44 @@
-deny.help.arg
+Deny specified network traffic.
 
+Usage:
+  flowaegis deny [options]
+
+Description:
+  The 'deny' command prevents network traffic from being sent or 
+  received based on specified filters. Traffic can be blocked by 
+  individual IP address, CIDR subnet, destination port, user ID, or 
+  originating process directory. If no filters are provided, all 
+  outbound traffic is blocked by default.
+
+Examples:
+  flowaegis deny
+  flowaegis deny -4 192.168.1.10
+  flowaegis deny -4 192.168.1.0/24
+  flowaegis deny -d /usr/bin/ -p 80,443
+
+Options:
+  -4, --ipv4=<ADDR|CIDR>  
+      Deny traffic matching the specified IPv4 address or subnet. 
+      Examples: 192.168.1.10, 192.168.1.0/24
+
+  -6, --ipv6=<ADDR|CIDR>  
+      Deny traffic matching the specified IPv6 address or subnet. 
+      Examples: fd00::1, fd00::/64
+
+  -p, --port=<port[,port,...]>        
+      Comma-separated list of destination ports to proxy.
+      Example: 80,443
+
+  -u, --uid=<UID[,UID,...]>           
+      Proxy only traffic originating from the specified user 
+      IDs. Multiple user IDs should be comma-separated. 
+      Example: 1001,1002
+
+  -d, --directory=<path>              
+      Proxy only traffic from processes launched within the
+      specified directory.
+      Example: /usr/bin/
+  
+  -h, --help
+  Print help information.
+  

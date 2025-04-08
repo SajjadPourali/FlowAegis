@@ -1,0 +1,51 @@
+Intercept and relay traffic through a SOCKS proxy.
+
+Usage:
+  flowaegis proxy [options]
+
+Description:
+  The 'proxy' command intercepts and relays outbound traffic 
+  through a SOCKS proxy. Traffic can be routed based on 
+  IP subnets, destination ports, user IDs, or originating 
+  process directories.
+
+  Either the --ipv4 or --ipv6 option must be specified.
+
+Examples:
+  flowaegis proxy -4 192.168.1.1=192.168.1.2:8080
+  flowaegis proxy -6 fd00::/64=[fdff::1]:1080
+  flowaegis proxy -d /usr/bin/ -p 80,443
+
+Options:
+  -4, --ipv4=<ADDR|CIDR>=<ADDR:PORT>  
+      Specify an IPv4 address or subnet and its corresponding
+      proxy destination. Example: 192.168.1.0/24=192.168.2.2:8080
+
+  -6, --ipv6=<ADDR|CIDR>=<ADDR:PORT>  
+      Specify an IPv6 address or subnet and its corresponding
+      proxy destination. Example: fd00::/64=[fdff::1]:1080
+
+  -p, --port=<port[,port,...]>        
+      Comma-separated list of destination ports to proxy.
+      Example: 80,443
+
+  -u, --uid=<UID[,UID,...]>           
+      Proxy only traffic originating from the specified user 
+      IDs. Multiple user IDs should be comma-separated. 
+      Example: 1001,1002
+
+  -d, --directory=<path>              
+      Proxy only traffic from processes launched within the
+      specified directory.
+      Example: /usr/bin/
+  
+  -h, --help
+  Print help information.
+
+Warning:
+  To prevent routing loops, especially when the SOCKS proxy 
+  is running locally, it is strongly recommended to use the 
+  `--uid` or `--directory` option to exclude the proxy server 
+  process from being intercepted.
+
+

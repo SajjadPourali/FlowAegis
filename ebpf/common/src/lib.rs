@@ -120,13 +120,15 @@ pub struct CgroupInfo {
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone,Debug)]
 pub struct SocketAddrCompat {
     pub ip: [u32; 4],
     pub port: u16,
     pub is_ipv6: bool,
 }
 
+#[cfg(feature = "user")]
+unsafe impl aya::Pod for SocketAddrCompat {}
 #[cfg(feature = "user")]
 impl SocketAddrCompat {
     pub fn to_socket_addr(&self) -> SocketAddr {
@@ -164,6 +166,7 @@ pub struct RuleV4 {
     pub uid: u32,
     // pub pid: u32,
     pub dst: u32,
+    pub transport_id: u32,
 }
 
 #[repr(C)]
@@ -174,6 +177,7 @@ pub struct RuleV6 {
     pub uid: u32,
     // pub pid: u32,
     pub dst: [u32; 4],
+    pub transport_id: u32,
 }
 
 #[cfg(feature = "user")]
@@ -184,10 +188,11 @@ pub enum _Rule<V4, V6> {
 
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for LpmValue {}
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Copy, Clone)]
 pub struct LpmValue {
     pub rule_id: u32,
+    pub transport_id: u32,
     pub action: Action,
 }
 

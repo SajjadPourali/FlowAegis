@@ -1,0 +1,23 @@
+flowaegis
+
+Usage:
+  flowaegis <command> [options]
+
+Available Commands:
+  allow      Permit specified network traffic (observation mode).
+  deny       Block specified network traffic.
+  forward    Redirect network traffic to a designated destination.
+  proxy      Intercept and relay traffic through a SOCKS proxy.
+  import     Import and apply traffic rules from a file.
+
+Options:
+  -h, --help
+  Print help information.
+
+      --version
+      Print version information.
+
+Note:
+  Commands support shorthand aliases (e.g., 'a' for 'allow', 'd' for 'deny').
+
+Use "flowaegis <command> --help" for detailed information on each command.

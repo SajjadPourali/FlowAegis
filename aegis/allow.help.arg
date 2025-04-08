@@ -1,0 +1,43 @@
+Allow specified network traffic.
+
+Usage:
+  flowaegis allow [options]
+
+Description:
+  The 'allow' command permits specified network traffic based on 
+  defined filters. Traffic can be allowed by individual IP address, 
+  CIDR subnet, destination port, user ID, or originating process 
+  directory. If no filters are provided, all outbound traffic is 
+  allowed by default.
+
+Examples:
+  flowaegis allow
+  flowaegis allow -4 192.168.1.10
+  flowaegis allow -4 192.168.1.0/24
+  flowaegis allow -d /usr/bin/ -p 80,443
+
+Options:
+  -4, --ipv4=<ADDR|CIDR>  
+      Allow traffic matching the specified IPv4 address or subnet. 
+      Examples: 192.168.1.10, 192.168.1.0/24
+
+  -6, --ipv6=<ADDR|CIDR>  
+      Allow traffic matching the specified IPv6 address or subnet. 
+      Examples: fd00::1, fd00::/64
+
+  -p, --port=<port[,port,...]>  
+      Comma-separated list of destination ports to allow.
+      Example: 80,443
+
+  -u, --uid=<UID[,UID,...]>  
+      Only allow traffic originating from the specified user IDs. 
+      Multiple user IDs should be comma-separated. 
+      Example: 1001,1002
+
+  -d, --directory=<path>  
+      Only allow traffic from processes launched within the specified 
+      directory. Example: /usr/bin/
+ 
+  -h, --help
+  Print help information.
+  

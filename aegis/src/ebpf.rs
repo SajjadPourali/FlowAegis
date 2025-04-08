@@ -13,13 +13,14 @@ use aya::{
 use bytes::BytesMut;
 use ebpf_common::{
     Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, PathKey, RuleV4, RuleV6,
+    SocketAddrCompat, u128_to_u32_array,
 };
 use futures::{
     Stream, StreamExt,
     stream::{self, select_all},
 };
 
-use crate::error;
+use crate::{error, rule::Transport};
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -31,6 +32,7 @@ pub struct EbpfMessage {
     pub gid: u32,
     pub pid: u32,
     pub tgid: u32,
+    pub transport: Option<SocketAddrCompat>,
     // pub path: Option<String>,
 }
 
@@ -47,6 +49,7 @@ pub struct EbpfMessageStream {
     rules: Vec<(std::string::String, Action)>,
     network_tuple_stream: AsyncPerfEventArrayStream<NetworkTuple>,
     delay_queue: tokio_util::time::DelayQueue<CgroupInfo>,
+    transport_names: HashMap<String, (u32, SocketAddrCompat)>,
     // process_map: HashMap<u32, String>,
     // queue_map: HashMap<u32, tokio_util::time::delay_queue::Key>,
 }
@@ -58,22 +61,6 @@ impl Stream for EbpfMessageStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        // if let std::task::Poll::Ready(process_info) = self.process_info.poll_next_unpin(cx) {
-        //     match process_info {
-        //         Some(pi) => {
-        //             if pi.path_len == 0 {
-        //                 self.process_map.remove(&(pi.pid as u32));
-        //             } else {
-        //                 if let Ok(path) =
-        //                     String::from_utf8(pi.path[..pi.path_len as usize].to_vec())
-        //                 {
-        //                     self.process_map.insert(pi.pid, path);
-        //                 }
-        //             }
-        //         }
-        //         None => return std::task::Poll::Ready(None),
-        //     }
-        // }
         if let std::task::Poll::Ready(network_tuple) = self.network_tuple_stream.poll_next_unpin(cx)
         {
             match network_tuple {
@@ -81,6 +68,16 @@ impl Stream for EbpfMessageStream {
                     let o = ("Default".to_string(), Action::Allow);
                     let (rule_name, rule_action) =
                         self.rules.get(network_tuple.rule as usize).unwrap_or(&o);
+                    let src = network_tuple.src.to_socket_addr();
+                    let actual_dst = network_tuple.actual_dst.to_socket_addr();
+                    let transport = self
+                        .transport_names
+                        .get(&format!(
+                            "{}{}",
+                            rule_name,
+                            if actual_dst.is_ipv6() { "6" } else { "4" }
+                        ))
+                        .map(|(_, addr)| addr.clone());
                     // match ;
                     return std::task::Poll::Ready(Some(EbpfMessage {
                         action: match rule_action {
@@ -89,12 +86,13 @@ impl Stream for EbpfMessageStream {
                             Action::Forward => EbpfMessageAction::Forward(rule_name.to_owned()),
                             Action::Proxy => EbpfMessageAction::Proxy(rule_name.to_owned()),
                         },
-                        src: network_tuple.src.to_socket_addr(), //: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
-                        dst: network_tuple.actual_dst.to_socket_addr(), //,SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+                        src, //: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+                        dst: actual_dst, //,SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
                         uid: network_tuple.uid,
                         gid: network_tuple.gid,
                         pid: network_tuple.pid,
                         tgid: network_tuple.tgid,
+                        transport,
                         // path: self.process_map.get(&(network_tuple.tgid as u32)).cloned(),
                     }));
                     // let src = network_tuple.src;
@@ -163,7 +161,14 @@ impl Stream for EbpfMessageStream {
                 let (rule_name, _) = self.rules.get(expired.rule as usize).unwrap();
                 rule_name.as_str()
             };
-
+            let transport = self
+                .transport_names
+                .get(&format!(
+                    "{}{}",
+                    rule_name,
+                    if dst.is_ipv6() { "6" } else { "4" }
+                ))
+                .map(|(_, addr)| addr.clone());
             return std::task::Poll::Ready(Some(EbpfMessage {
                 action: EbpfMessageAction::Interrupted(rule_name.to_string()),
                 src,
@@ -172,6 +177,7 @@ impl Stream for EbpfMessageStream {
                 gid,
                 pid,
                 tgid,
+                transport,
                 // path: self.process_map.get(&(pid as u32)).cloned(),
             }));
         }
@@ -240,11 +246,12 @@ pub struct Ebpf {
     pub inner: aya::Ebpf,
     pub main_program_info: MainProgramInfo,
     pub rule_names: Vec<(String, Action)>,
+    pub transport_names: HashMap<String, (u32, SocketAddrCompat)>,
 }
 
 impl Ebpf {
     pub fn new() -> Result<Self, error::AegisError> {
-        let ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
+        let mut ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
             env!("OUT_DIR"),
             "/ebpf"
         )))
@@ -263,7 +270,7 @@ impl Ebpf {
         .unwrap();
         // ulimit -l unlimited
 
-        // let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
+        let _ = aya_log::EbpfLogger::init(&mut ebpf).unwrap();
         Ok(Self {
             inner: ebpf,
             main_program_info: MainProgramInfo {
@@ -274,21 +281,22 @@ impl Ebpf {
                 forward_v6_address: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0),
                 proxy_v6_address: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0),
             },
-            rule_names: Vec::new(),
+            rule_names: Default::default(),
+            transport_names: Default::default(),
         })
     }
-    pub fn set_forward_v4_address(&mut self, addr: SocketAddrV4) {
-        self.main_program_info.forward_v4_address = addr;
-    }
-    pub fn set_proxy_v4_address(&mut self, addr: SocketAddrV4) {
-        self.main_program_info.proxy_v4_address = addr;
-    }
-    pub fn set_forward_v6_address(&mut self, addr: SocketAddrV6) {
-        self.main_program_info.forward_v6_address = addr;
-    }
-    pub fn set_proxy_v6_address(&mut self, addr: SocketAddrV6) {
-        self.main_program_info.proxy_v6_address = addr;
-    }
+    // pub fn set_forward_v4_address(&mut self, addr: SocketAddrV4) {
+    //     self.main_program_info.forward_v4_address = addr;
+    // }
+    // pub fn set_proxy_v4_address(&mut self, addr: SocketAddrV4) {
+    //     self.main_program_info.proxy_v4_address = addr;
+    // }
+    // pub fn set_forward_v6_address(&mut self, addr: SocketAddrV6) {
+    //     self.main_program_info.forward_v6_address = addr;
+    // }
+    // pub fn set_proxy_v6_address(&mut self, addr: SocketAddrV6) {
+    //     self.main_program_info.proxy_v6_address = addr;
+    // }
     pub fn load_main_program_info(&mut self) {
         let mut main_program_info_map: aya::maps::Array<&mut aya::maps::MapData, MainProgramInfo> =
             aya::maps::Array::try_from(self.inner.map_mut("MAIN_APP_INFO").unwrap()).unwrap();
@@ -296,18 +304,47 @@ impl Ebpf {
             .set(0, self.main_program_info, 0)
             .unwrap();
     }
+    pub fn set_transports(&mut self, transports: HashMap<String, crate::rule::Transport>) {
+        let mut transport_map = HashMap::new();
+        for (transport_name, transport) in transports.into_iter() {
+            transport_map.insert(
+                transport_name.clone() + "4",
+                SocketAddrCompat {
+                    ip: [0, 0, 0, transport.ipv4.ip().to_bits()],
+                    port: transport.ipv4.port(),
+                    is_ipv6: false,
+                },
+            );
+
+            transport_map.insert(
+                transport_name + "6",
+                SocketAddrCompat {
+                    ip: u128_to_u32_array(transport.ipv6.ip().to_bits()),
+                    port: transport.ipv6.port(),
+                    is_ipv6: true,
+                },
+            );
+        }
+        let mut transport_bpf_map: aya::maps::Array<&mut aya::maps::MapData, SocketAddrCompat> =
+            aya::maps::Array::try_from(self.inner.map_mut("TRANSPORT").unwrap()).unwrap();
+        for (transport_id, (transport_name, transport)) in transport_map.into_iter().enumerate() {
+            let transport_id = transport_id as u32;
+            transport_bpf_map
+                .set(transport_id, transport.clone(), 0)
+                .unwrap();
+            self.transport_names
+                .insert(transport_name, (transport_id, transport));
+        }
+    }
     pub fn set_rules(&mut self, rules: HashMap<String, crate::rule::Rule>) {
         let mut addr_rule_map: HashMap<String, u32> = HashMap::new();
         for (rule_id, (r_name, r)) in rules.into_iter().enumerate() {
             let mut v4_rules = Vec::new();
             let mut v6_rules = Vec::new();
             let mut path_keys = Vec::new();
-
+            let transport = r.transport.clone();
             self.rule_names.push((r_name, r.action.into()));
-            let value = LpmValue {
-                rule_id: rule_id as u32,
-                action: r.action.into(),
-            };
+            let action = r.action.into();
             let path_flags = (!r.uid.is_empty()) as u16;
             let mut path = [0u8; 128];
             let path_len = r.path.len() as u8;
@@ -325,15 +362,40 @@ impl Ebpf {
                     path_keys.push(uid);
                 }
                 match rule {
-                    ebpf_common::_Rule::V4(rule_v4) => {
+                    ebpf_common::_Rule::V4(mut rule_v4) => {
+                        self.transport_names.get(&format!("{}4", transport)).map(
+                            |(transport_id, _)| {
+                                rule_v4.transport_id = *transport_id;
+                            },
+                        );
                         let base_offset = ((core::mem::size_of_val(&rule_v4) - 4) * 8) as u32;
                         let key = Key::new(base_offset + prefix as u32, rule_v4);
-                        v4_rules.push((key, value));
+                        action;
+                        v4_rules.push((
+                            key,
+                            LpmValue {
+                                rule_id: rule_id as u32,
+                                transport_id: rule_v4.transport_id,
+                                action,
+                            },
+                        ));
                     }
-                    ebpf_common::_Rule::V6(rule_v6) => {
+                    ebpf_common::_Rule::V6(mut rule_v6) => {
+                        self.transport_names.get(&format!("{}6", transport)).map(
+                            |(transport_id, _)| {
+                                rule_v6.transport_id = *transport_id;
+                            },
+                        );
                         let base_offset = ((core::mem::size_of_val(&rule_v6) - 16) * 8) as u32;
                         let key = Key::new(base_offset + prefix as u32, rule_v6);
-                        v6_rules.push((key, value));
+                        v6_rules.push((
+                            key,
+                            LpmValue {
+                                rule_id: rule_id as u32,
+                                transport_id: rule_v6.transport_id,
+                                action,
+                            },
+                        ));
                     }
                 }
             }
@@ -438,6 +500,7 @@ impl Ebpf {
 
         EbpfMessageStream {
             rules: self.rule_names.clone(),
+            transport_names: self.transport_names.clone(),
             network_tuple_stream: AsyncPerfEventArrayStream::<NetworkTuple>::new(
                 self.inner.take_map("NETWORK_TUPLE").unwrap(),
             ),

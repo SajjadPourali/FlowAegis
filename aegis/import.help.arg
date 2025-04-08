@@ -1,0 +1,15 @@
+Import and apply traffic rules from a file.
+
+Usage:
+  flowaegis import [options] <file>
+
+Description:
+  The 'import' command loads and applies network traffic control rules (ACLs) from a specified file. 
+  This file should contain valid rule definitions in TOML supported format.
+
+Examples:
+  flowaegis import rules.toml
+
+Options:
+  -h, --help
+  Print help information.

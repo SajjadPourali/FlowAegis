@@ -1,6 +1,6 @@
 use ebpf_common::{_Rule, RuleV4, RuleV6, u128_to_u32_array};
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
 
 fn default<T: Default + PartialEq>(t: &T) -> bool {
     *t == Default::default()
@@ -43,6 +43,9 @@ pub struct Rule {
     #[serde(default)]
     #[serde(skip_serializing_if = "default")]
     pub path: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "default")]
+    pub transport: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -76,6 +79,7 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
                             port,
                             uid: *uid,
                             dst: ip_addr.to_bits(),
+                            transport_id: 0,
                         }),
                         prefix,
                     ))
@@ -86,6 +90,7 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
                             port,
                             uid: *uid,
                             dst: 0,
+                            transport_id: 0,
                         }),
                         0,
                     ));
@@ -97,6 +102,7 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
                             port,
                             uid: *uid,
                             dst: u128_to_u32_array(ip_addr.to_bits()),
+                            transport_id: 0,
                         }),
                         prefix,
                     ))
@@ -107,6 +113,7 @@ impl From<Rule> for Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)> {
                             port,
                             uid: *uid,
                             dst: [0; 4],
+                            transport_id: 0,
                         }),
                         0,
                     ));
@@ -144,4 +151,10 @@ impl From<Host> for ebpf_common::Host {
         //     None => ebpf_common::Host::Any,
         // }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Transport {
+    pub ipv4: SocketAddrV4,
+    pub ipv6: SocketAddrV6,
 }

@@ -1,9 +1,7 @@
-use clap_lex::OsStrExt;
-
 use crate::error::AegisError;
 use std::{
     collections::HashMap,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6},
     process,
 };
 
@@ -12,6 +10,7 @@ static ALLOW_HELP: &str = include_str!("../allow.help.arg");
 static FORWARD_HELP: &str = include_str!("../forward.help.arg");
 static PROXY_HELP: &str = include_str!("../proxy.help.arg");
 static DENY_HELP: &str = include_str!("../deny.help.arg");
+static IMPORT_HELP: &str = include_str!("../import.help.arg");
 static BRIEF_LICENCE: &str = "This program is licensed under the Apache License, Version 2.0.";
 
 #[derive(Debug)]
@@ -20,8 +19,10 @@ enum SubCommands {
     Proxy,
     Allow,
     Deny,
+    Import,
 }
 
+#[derive(Debug)]
 pub struct Args(ArgCommands);
 
 #[derive(Debug)]
@@ -30,6 +31,7 @@ pub enum ArgCommands {
     Proxy(ProxyArgs),
     Allow(AllowArgs),
     Deny(DenyArgs),
+    Import(String),
 }
 #[derive(Debug)]
 pub struct ForwardArgs {
@@ -66,8 +68,13 @@ pub struct DenyArgs {
 
 impl SubCommands {
     pub fn new(arg: &str) -> Result<Self, AegisError> {
-        let mut types: HashMap<&str, usize> =
-            HashMap::from([("forward", 0), ("allow", 0), ("deny", 0), ("proxy", 0)]);
+        let mut types: HashMap<&str, usize> = HashMap::from([
+            ("forward", 0),
+            ("allow", 0),
+            ("deny", 0),
+            ("proxy", 0),
+            ("import", 0),
+        ]);
         for (i, c) in arg.chars().enumerate() {
             for (type_name, type_value) in types.iter_mut() {
                 if *type_value == i && arg.len() <= type_name.len() {
@@ -94,6 +101,7 @@ impl SubCommands {
             "allow" => Ok(Self::Allow),
             "deny" => Ok(Self::Deny),
             "proxy" => Ok(Self::Proxy),
+            "import" => Ok(Self::Import),
             _ => Err(AegisError::CommandNotFound),
         }
     }
@@ -106,7 +114,6 @@ impl Args {
         let raw = clap_lex::RawArgs::new(raw);
         let mut cursor = raw.cursor();
         raw.next(&mut cursor);
-        let mut config_path = None;
         let command_arg = loop {
             let Some(arg) = raw.next(&mut cursor) else {
                 print!("{}", HELP);
@@ -114,16 +121,6 @@ impl Args {
             };
             if let Some((long, value)) = arg.to_long() {
                 match long {
-                    Ok("config") => {
-                        config_path = Some(
-                            value
-                                .ok_or(AegisError::RequiredValue("config"))?
-                                .to_str()
-                                .ok_or(AegisError::Encoding)?
-                                .to_owned(),
-                        );
-                        continue;
-                    }
                     Ok("help") => {
                         print!("{}", HELP);
                         process::exit(0x0);
@@ -137,23 +134,9 @@ impl Args {
                 }
             } else if let Some(mut shorts) = arg.to_short() {
                 while let Some(short) = shorts.next_flag() {
-                    match short {
-                        Ok('c') => {
-                            config_path = if let Some(v) = shorts.next_value_os() {
-                                v.to_str().map(|s| s.to_string())
-                            } else if let Some(v) = raw.next_os(&mut cursor) {
-                                v.to_str()
-                                    .filter(|v| !v.is_empty() && v.find('-') != Some(0))
-                                    .map(|v| v.to_string())
-                            } else {
-                                return Err(AegisError::RequiredValue("config"));
-                            };
-                        }
-                        Ok('h') => {
-                            print!("{}", HELP);
-                            process::exit(0x0);
-                        }
-                        _ => {}
+                    if let Ok('h') = short {
+                        print!("{}", HELP);
+                        process::exit(0x0);
                     }
                 }
                 continue;
@@ -162,6 +145,20 @@ impl Args {
             break arg;
         };
         match SubCommands::new(command_arg.to_value().or(Err(AegisError::Encoding))?)? {
+            SubCommands::Import => {
+                match raw
+                    .next(&mut cursor)
+                    .ok_or(AegisError::InvalidValue("Path required"))?
+                    .to_value()
+                {
+                    Ok(path) if (["-h", "--help"].contains(&path)) => {
+                        print!("{}", IMPORT_HELP);
+                        process::exit(0x0);
+                    }
+                    Ok(path) => Ok(Self(ArgCommands::Import(path.to_string()))),
+                    Err(_) => Err(AegisError::InvalidValue("Path required")),
+                }
+            }
             SubCommands::Proxy => {
                 let mut sub = ProxyArgs {
                     v4: None,
