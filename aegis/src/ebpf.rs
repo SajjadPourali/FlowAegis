@@ -28,6 +28,7 @@ pub struct EbpfMessage {
     pub action: EbpfMessageAction,
     pub src: SocketAddr,
     pub dst: SocketAddr,
+    pub actual_dst: SocketAddr,
     pub uid: u32,
     pub gid: u32,
     pub pid: u32,
@@ -46,6 +47,7 @@ pub enum EbpfMessageAction {
 }
 pub struct EbpfMessageStream {
     rules: Vec<(std::string::String, Action)>,
+    transports: HashMap<u32, SocketAddr>,
     network_tuple_stream: AsyncPerfEventArrayStream<NetworkTuple>,
     delay_queue: tokio_util::time::DelayQueue<CgroupInfo>,
     // process_map: HashMap<u32, String>,
@@ -67,17 +69,27 @@ impl Stream for EbpfMessageStream {
                     let (rule_name, rule_action) =
                         self.rules.get(network_tuple.rule as usize).unwrap_or(&o);
                     let src = network_tuple.src.to_socket_addr();
+                    let mut dst = network_tuple.dst.to_socket_addr();
                     let actual_dst = network_tuple.actual_dst.to_socket_addr();
+
                     // match ;
                     return std::task::Poll::Ready(Some(EbpfMessage {
                         action: match rule_action {
                             Action::Allow => EbpfMessageAction::Allow(rule_name.to_owned()),
                             Action::Deny => EbpfMessageAction::Deny(rule_name.to_owned()),
                             Action::Forward => EbpfMessageAction::Forward(rule_name.to_owned()),
-                            Action::Proxy => EbpfMessageAction::Proxy(rule_name.to_owned()),
+                            Action::Proxy => {
+                                if let Some(t) =
+                                    self.transports.get(&(network_tuple.transport as u32))
+                                {
+                                    dst = *t;
+                                };
+                                EbpfMessageAction::Proxy(rule_name.to_owned())
+                            }
                         },
                         src, //: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
-                        dst: actual_dst, //,SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+                        dst,
+                        actual_dst, //,SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
                         uid: network_tuple.uid,
                         gid: network_tuple.gid,
                         pid: network_tuple.pid,
@@ -155,6 +167,7 @@ impl Stream for EbpfMessageStream {
                 action: EbpfMessageAction::Interrupted(rule_name.to_string()),
                 src,
                 dst,
+                actual_dst: dst,
                 uid,
                 gid,
                 pid,
@@ -228,6 +241,7 @@ pub struct Ebpf {
     pub main_program_info: MainProgramInfo,
     pub rule_names: Vec<(String, Action)>,
     pub transport_names: HashMap<String, u32>,
+    pub transports: HashMap<u32, SocketAddr>,
 }
 
 impl Ebpf {
@@ -264,20 +278,21 @@ impl Ebpf {
             },
             rule_names: Default::default(),
             transport_names: Default::default(),
+            transports: Default::default(),
         })
     }
     // pub fn set_forward_v4_address(&mut self, addr: SocketAddrV4) {
     //     self.main_program_info.forward_v4_address = addr;
     // }
-    // pub fn set_proxy_v4_address(&mut self, addr: SocketAddrV4) {
-    //     self.main_program_info.proxy_v4_address = addr;
-    // }
+    pub fn set_proxy_v4_address(&mut self, addr: SocketAddrV4) {
+        self.main_program_info.proxy_v4_address = addr;
+    }
     // pub fn set_forward_v6_address(&mut self, addr: SocketAddrV6) {
     //     self.main_program_info.forward_v6_address = addr;
     // }
-    // pub fn set_proxy_v6_address(&mut self, addr: SocketAddrV6) {
-    //     self.main_program_info.proxy_v6_address = addr;
-    // }
+    pub fn set_proxy_v6_address(&mut self, addr: SocketAddrV6) {
+        self.main_program_info.proxy_v6_address = addr;
+    }
     pub fn load_main_program_info(&mut self) {
         let mut main_program_info_map: aya::maps::Array<&mut aya::maps::MapData, MainProgramInfo> =
             aya::maps::Array::try_from(self.inner.map_mut("MAIN_APP_INFO").unwrap()).unwrap();
@@ -314,6 +329,8 @@ impl Ebpf {
                 .set(transport_id, transport.clone(), 0)
                 .unwrap();
             self.transport_names.insert(transport_name, transport_id);
+            self.transports
+                .insert(transport_id, transport.to_socket_addr());
         }
     }
     pub fn set_rules(&mut self, rules: HashMap<String, crate::rule::Rule>) {
@@ -343,8 +360,6 @@ impl Ebpf {
                 }
                 match rule {
                     ebpf_common::_Rule::V4(rule_v4) => {
-                        dbg!(&self.transport_names);
-                        dbg!(&transport);
                         let transport_id = self
                             .transport_names
                             .get(&format!("{}4", transport))
@@ -487,6 +502,7 @@ impl Ebpf {
                 self.inner.take_map("NETWORK_TUPLE").unwrap(),
             ),
             delay_queue: Default::default(),
+            transports: self.transports.clone(),
             // process_map,
             // queue_map: Default::default(),
         }

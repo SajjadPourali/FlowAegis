@@ -102,6 +102,7 @@ pub struct NetworkTuple {
     pub src: SocketAddrCompat,
     pub dst: SocketAddrCompat,
     pub actual_dst: SocketAddrCompat,
+    pub transport: u32,
     pub uid: u32,
     pub gid: u32,
     pub pid: u32,
@@ -111,6 +112,7 @@ pub struct NetworkTuple {
 
 pub struct CgroupInfo {
     pub dst: SocketAddrCompat,
+    pub transport: u32,
     pub uid: u32,
     pub gid: u32,
     pub pid: u32,

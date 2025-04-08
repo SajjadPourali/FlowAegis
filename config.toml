@@ -26,19 +26,15 @@
 # ipv4 = ["1.1.1.1", 24]
 # port = [80, 443, 22]
 
-[transport.aa]
-ipv4 = "192.168.70.104:1080"
-ipv6 = "[::1]:8080"
-
-[transport.bb]
-ipv4 = "1.1.1.1:80"
+[transport.local_machine]
+ipv4 = "192.168.1.2:1080"
 ipv6 = "[::1]:8080"
 
 [rules.test3]
 action = "Proxy"
 # ipv4 = ["1.1.1.1", 32]
 path = "/usr/bin/"
-transport = "bb"
+transport = "local_machine"
 
 # [rules.test4]
 # action = "Proxy"

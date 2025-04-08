@@ -35,8 +35,6 @@ mod network;
 
 #[tokio::main]
 async fn main() -> Result<(), error::AegisError> {
-    // let args = Args::parse(env::args())?;
-    // dbg!(args);
     let mut proxy = Proxy::new(
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
         SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
@@ -53,9 +51,9 @@ async fn main() -> Result<(), error::AegisError> {
 
     let mut ebpf = Ebpf::new()?;
     // ebpf.set_forward_v4_address(config.forward_address_ipv4);
-    // ebpf.set_proxy_v4_address(proxy.get_local_address_v4()?);
+    ebpf.set_proxy_v4_address(proxy.get_local_address_v4()?);
     // ebpf.set_forward_v6_address(config.forward_address_ipv6);
-    // ebpf.set_proxy_v6_address(proxy.get_local_address_v6()?);
+    ebpf.set_proxy_v6_address(proxy.get_local_address_v6()?);
     ebpf.set_transports(config.transport);
     ebpf.set_rules(config.rules);
     ebpf.load_main_program_info();
@@ -77,7 +75,7 @@ async fn main() -> Result<(), error::AegisError> {
                         log::info!(
                             "Connection Allowed - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
-                            msg.dst,
+                            msg.actual_dst,
                             msg.uid,
                             msg.pid,
                             path,
@@ -88,7 +86,7 @@ async fn main() -> Result<(), error::AegisError> {
                         log::info!(
                             "Connection Denined - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
-                            msg.dst,
+                            msg.actual_dst,
                             msg.uid,
                             msg.pid,
                             path,
@@ -99,7 +97,7 @@ async fn main() -> Result<(), error::AegisError> {
                         log::info!(
                             "Connection Forwarded - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
-                            msg.dst,
+                            msg.actual_dst,
                             msg.uid,
                             msg.pid,
                             path,
@@ -110,7 +108,7 @@ async fn main() -> Result<(), error::AegisError> {
                         log::info!(
                             "Connection Proxied - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
-                            msg.dst,
+                            msg.actual_dst,
                             msg.uid,
                             msg.pid,
                             path,
@@ -121,7 +119,7 @@ async fn main() -> Result<(), error::AegisError> {
                         log::info!(
                             "Connection Interrupted - src={} dst={} uid={} pid={} path={} rule={}",
                             msg.src,
-                            msg.dst,
+                            msg.actual_dst,
                             msg.uid,
                             msg.pid,
                             path,
@@ -134,7 +132,7 @@ async fn main() -> Result<(), error::AegisError> {
                         let proxy_stream = ProxyStream::new(ProxyType::SOCKS5);
                         tokio::spawn(async move {
                             let conn = if msg.dst.is_ipv4() {
-                                TcpStream::connect(msg.dst).await
+                                TcpStream::connect(msg.dst).await // proxy address
                             } else {
                                 TcpStream::connect(msg.dst).await
                             };
@@ -145,30 +143,30 @@ async fn main() -> Result<(), error::AegisError> {
                                     return;
                                 }
                             };
-                            let proxy_stream = match proxy_stream.connect(conn, msg.dst).await {
-                                Ok(proxy_stream) => proxy_stream,
-                                Err(e) => {
-                                    warn!("{}", e);
-                                    return;
-                                }
-                            };
+                            let proxy_stream =
+                                match proxy_stream.connect(conn, msg.actual_dst).await {
+                                    Ok(proxy_stream) => proxy_stream,
+                                    Err(e) => {
+                                        warn!("{}", e);
+                                        return;
+                                    }
+                                };
                             if let Err(e) = async_forward(proxy_stream, stream).await {
                                 warn!("{}", e);
                             }
                         });
                     } else {
-                        // dbg!(msg.dst);
-                        // dbg!(msg.transport);
-                        proxy_address_map.insert(msg.src, msg.dst);
+                        proxy_address_map.insert(msg.src, (msg.dst, msg.actual_dst));
                     }
                 }
             }
+
             future::Either::Right((Some(Ok((stream, addr))), _)) => {
-                if let Some(dst) = proxy_address_map.remove(&addr) {
+                if let Some((dst, actual_dst)) = proxy_address_map.remove(&addr) {
                     let proxy_stream = ProxyStream::new(ProxyType::SOCKS5);
                     tokio::spawn(async move {
                         let conn = if addr.ip().is_ipv4() {
-                            TcpStream::connect(dst).await
+                            TcpStream::connect(dst).await // proxy address
                         } else {
                             TcpStream::connect(dst).await
                         };
@@ -179,7 +177,7 @@ async fn main() -> Result<(), error::AegisError> {
                                 return;
                             }
                         };
-                        let proxy_stream = match proxy_stream.connect(conn, dst).await {
+                        let proxy_stream = match proxy_stream.connect(conn, actual_dst).await {
                             Ok(proxy_stream) => proxy_stream,
                             Err(e) => {
                                 warn!("{}", e);
