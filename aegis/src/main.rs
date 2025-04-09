@@ -131,7 +131,7 @@ mod network;
 
 #[tokio::main]
 async fn main() -> Result<(), error::AegisError> {
-    let config = Config::load(args::Args::parse(env::args()).unwrap()).await?;
+    let config = Config::load(args::Args::parse(env::args())?).await?;
     let mut proxy = Proxy::new(
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
         SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),

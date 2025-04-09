@@ -113,7 +113,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         is_ipv6: false,
     };
 
-    let mut rule_id = u32::MAX;
+    let mut rule = u32::MAX;
     let mut action = Action::Allow;
     let mut transport_id = u32::MAX;
     let mut r4 = unsafe { core::mem::zeroed::<ebpf_common::RuleV4>() };
@@ -137,7 +137,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
                 // has path
                 if let Some(rid) = unsafe { PID_RULE_MAP.get(&tgid) } {
                     if rid == &(v.rule_id as u32) {
-                        rule_id = v.rule_id;
+                        rule = v.rule_id;
                         action = v.action;
                         transport_id = v.transport_id;
                         break;
@@ -146,7 +146,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
                 continue;
                 // r4.pid = pid;
             }
-            rule_id = v.rule_id;
+            rule = v.rule_id;
             action = v.action;
             transport_id = v.transport_id;
             break;
@@ -168,7 +168,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
                 gid,
                 pid,
                 tgid,
-                rule: rule_id,
+                rule,
             },
             0,
         );
@@ -180,7 +180,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     cgroup_info.gid = gid;
     cgroup_info.pid = pid;
     cgroup_info.tgid = tgid;
-    cgroup_info.rule = rule_id;
+    cgroup_info.rule = rule;
     cgroup_info.tag = 0;
     cgroup_info.transport = transport_id;
     // info!(
@@ -256,7 +256,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
         is_ipv6: true,
     };
 
-    let mut rule_id = u32::MAX;
+    let mut rule = u32::MAX;
     let mut action = Action::Allow;
     let mut transport_id = u32::MAX;
     let mut r6 = unsafe { core::mem::zeroed::<ebpf_common::RuleV6>() };
@@ -281,7 +281,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
                 // has path
                 if let Some(rid) = unsafe { PID_RULE_MAP.get(&tgid) } {
                     if rid == &(v.rule_id as u32) {
-                        rule_id = v.rule_id;
+                        rule = v.rule_id;
                         action = v.action;
                         transport_id = v.transport_id;
                         break;
@@ -290,7 +290,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
                 continue;
                 // r4.pid = pid;
             }
-            rule_id = v.rule_id;
+            rule = v.rule_id;
             action = v.action;
             transport_id = v.transport_id;
             break;
@@ -312,7 +312,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
                 gid,
                 pid,
                 tgid,
-                rule: rule_id,
+                rule,
             },
             0,
         );
@@ -324,7 +324,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     cgroup_info.gid = gid;
     cgroup_info.pid = pid;
     cgroup_info.tgid = tgid;
-    cgroup_info.rule = rule_id;
+    cgroup_info.rule = rule;
     cgroup_info.tag = 0;
     cgroup_info.transport = transport_id;
 

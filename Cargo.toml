@@ -1,5 +1,5 @@
 [workspace]
-members = ["aegis", "ebpf/core", "ebpf/common"]
+members = ["aegis", "ebpf/common", "ebpf/core"]
 default-members = ["aegis"]
 
 resolver = "2"
