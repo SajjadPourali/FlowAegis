@@ -102,9 +102,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         // TCP
         return 1;
     }
-    let mut ip = [0u32; 4];
-    ip[2] = u32::MAX;
-    ip[3] = bpf_sock_addr.user_ip4.swap_bytes();
+    let ip = [0, 0, u32::MAX, bpf_sock_addr.user_ip4.swap_bytes()];
     let port = (bpf_sock_addr.user_port as u16).swap_bytes();
 
     let addr = SocketAddrCompat {
@@ -215,13 +213,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
                 (*ctx.sock_addr).user_port = socket.port.swap_bytes() as u32;
                 1
             }
-        } // Action::Forward => unsafe {
-          //     (*ctx.sock_addr).user_ip4 =
-          //         u32::from_ne_bytes(main_program_info.forward_v4_address.ip().octets());
-          //     (*ctx.sock_addr).user_port =
-          //         main_program_info.forward_v4_address.port().swap_bytes() as u32;
-          //     1
-          // },
+        }
     }
 }
 
@@ -242,11 +234,12 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
         return 1;
     }
 
-    let mut ip = [0u32; 4];
-    ip[0] = bpf_sock_addr.user_ip6[0].swap_bytes();
-    ip[1] = bpf_sock_addr.user_ip6[1].swap_bytes();
-    ip[2] = bpf_sock_addr.user_ip6[2].swap_bytes();
-    ip[3] = bpf_sock_addr.user_ip6[3].swap_bytes();
+    let ip = [
+        bpf_sock_addr.user_ip6[0].swap_bytes(),
+        bpf_sock_addr.user_ip6[1].swap_bytes(),
+        bpf_sock_addr.user_ip6[2].swap_bytes(),
+        bpf_sock_addr.user_ip6[3].swap_bytes(),
+    ];
 
     let port = (bpf_sock_addr.user_port as u16).swap_bytes();
 
@@ -365,16 +358,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
                 (*ctx.sock_addr).user_port = socket.port.swap_bytes() as u32;
                 1
             }
-        } // Action::Forward => unsafe {
-          //     let ipv6 = u128_to_u32_array(main_program_info.forward_v6_address.ip().to_bits());
-          //     (*ctx.sock_addr).user_ip6[0] = ipv6[0].swap_bytes();
-          //     (*ctx.sock_addr).user_ip6[1] = ipv6[1].swap_bytes();
-          //     (*ctx.sock_addr).user_ip6[2] = ipv6[2].swap_bytes();
-          //     (*ctx.sock_addr).user_ip6[3] = ipv6[3].swap_bytes();
-          //     (*ctx.sock_addr).user_port =
-          //         main_program_info.forward_v6_address.port().swap_bytes() as u32;
-          //     1
-          // },
+        }
     }
 }
 
@@ -390,57 +374,52 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
     }
     let remote_port = ctx.remote_port().swap_bytes() as u16;
     let local_port = ctx.local_port() as u16;
-    let (src, dst) = if ctx.family() == 2 {
-        // IPv4
-        let mut local_ip = [0u32; 4];
-        local_ip[2] = u32::MAX;
-        local_ip[3] = ctx.local_ip4().swap_bytes();
-        let mut remote_ip = [0u32; 4];
-        remote_ip[2] = u32::MAX;
-        remote_ip[3] = ctx.remote_ip4().swap_bytes();
 
-        (
-            SocketAddrCompat {
-                ip: local_ip,
-                port: local_port,
-                is_ipv6: false,
-            },
-            SocketAddrCompat {
-                ip: remote_ip,
-                port: remote_port,
-                is_ipv6: false,
-            },
-        )
-    } else if ctx.family() == 10 {
-        // IPv6
-        let local_ip = ctx.local_ip6();
-        let remote_ip = ctx.remote_ip6();
-
-        (
-            SocketAddrCompat {
-                ip: [
-                    local_ip[0].swap_bytes(),
-                    local_ip[1].swap_bytes(),
-                    local_ip[2].swap_bytes(),
-                    local_ip[3].swap_bytes(),
+    let (local_ip, remote_ip, is_ipv6) = match ctx.family() {
+        2 => {
+            // IPv4
+            (
+                [0, 0, u32::MAX, ctx.local_ip4().swap_bytes()],
+                [0, 0, u32::MAX, ctx.remote_ip4().swap_bytes()],
+                false,
+            )
+        }
+        10 => {
+            // IPv6
+            let local = ctx.local_ip6();
+            let remote = ctx.remote_ip6();
+            (
+                [
+                    local[0].swap_bytes(),
+                    local[1].swap_bytes(),
+                    local[2].swap_bytes(),
+                    local[3].swap_bytes(),
                 ],
-                port: local_port,
-                is_ipv6: true,
-            },
-            SocketAddrCompat {
-                ip: [
-                    remote_ip[0].swap_bytes(),
-                    remote_ip[1].swap_bytes(),
-                    remote_ip[2].swap_bytes(),
-                    remote_ip[3].swap_bytes(),
+                [
+                    remote[0].swap_bytes(),
+                    remote[1].swap_bytes(),
+                    remote[2].swap_bytes(),
+                    remote[3].swap_bytes(),
                 ],
-                port: remote_port,
-                is_ipv6: true,
-            },
-        )
-    } else {
-        return 1;
+                true,
+            )
+        }
+        _ => {
+            return 1;
+        }
     };
+    let src = SocketAddrCompat {
+        ip: local_ip,
+        port: local_port,
+        is_ipv6,
+    };
+
+    let dst = SocketAddrCompat {
+        ip: remote_ip,
+        port: remote_port,
+        is_ipv6,
+    };
+
     NETWORK_TUPLE.output(
         &ctx,
         &NetworkTuple {
