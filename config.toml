@@ -29,13 +29,12 @@
 [transport.local_machine]
 ipv4 = "192.168.1.2:1080"
 ipv6 = "[::1]:8080"
-# transport = "local_machine"
-# path = "/usr/bin/"
 
 [rules.test2]
-action = "Deny"
-ipv6 = ["::1", 32]
+action = "Forward"
+# ipv6 = ["::1", 0]
 path = "/usr/bin/"
+transport = "local_machine"
 
 # [rules.test4]
 # action = "Proxy"
