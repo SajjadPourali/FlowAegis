@@ -1,4 +1,4 @@
-use core::u32;
+use core::{arch::asm, u32};
 
 use aya_ebpf::{
     EbpfContext,
@@ -31,9 +31,6 @@ pub static TRANSPORT: Array<SocketAddrCompat> = Array::with_max_entries(100, 0);
 
 #[map]
 pub static NETWORK_TUPLE: PerfEventArray<NetworkTuple> = PerfEventArray::new(0);
-
-#[map]
-pub static CGROUP_INFO: PerfEventArray<CgroupInfo> = PerfEventArray::new(0);
 
 #[map]
 pub static SOCKET_MARK_MAP: LruHashMap<u32, CgroupInfo> = LruHashMap::with_max_entries(1024, 0);
@@ -364,6 +361,13 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
 
 #[sock_ops]
 pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
+    let is_ipv6 = match ctx.family() {
+        2 => false,
+        10 => true,
+        _ => {
+            return 1;
+        }
+    };
     let Some(cgroup_info) = unmark_socket(ctx.ops as *mut core::ffi::c_void) else {
         return 1;
     };
@@ -375,35 +379,14 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
     let remote_port = ctx.remote_port().swap_bytes() as u16;
     let local_port = ctx.local_port() as u16;
 
-    let (local_ip, remote_ip, is_ipv6) = match ctx.family() {
-        2 => {
-            // IPv4
-            (
-                [0, 0, u32::MAX, ctx.local_ip4().swap_bytes()],
-                [0, 0, u32::MAX, ctx.remote_ip4().swap_bytes()],
-                false,
-            )
-        }
-        10 => {
-            // IPv6
-            (
-                ctx.local_ip6().map(|x| x.swap_bytes()),
-                ctx.remote_ip6().map(|x| x.swap_bytes()),
-                true,
-            )
-        }
-        _ => {
-            return 1;
-        }
-    };
     let src = SocketAddrCompat {
-        ip: local_ip,
+        ip: ctx.local_ip6().map(|x| x.swap_bytes()),
         port: local_port,
         is_ipv6,
     };
 
     let dst = SocketAddrCompat {
-        ip: remote_ip,
+        ip: ctx.remote_ip6().map(|x| x.swap_bytes()),
         port: remote_port,
         is_ipv6,
     };
