@@ -1,5 +1,3 @@
-use core::{arch::asm, u32};
-
 use aya_ebpf::{
     EbpfContext,
     helpers::r#gen::bpf_get_prandom_u32,
