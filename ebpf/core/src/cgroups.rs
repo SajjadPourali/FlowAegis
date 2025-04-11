@@ -386,21 +386,9 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
         }
         10 => {
             // IPv6
-            let local = ctx.local_ip6();
-            let remote = ctx.remote_ip6();
             (
-                [
-                    local[0].swap_bytes(),
-                    local[1].swap_bytes(),
-                    local[2].swap_bytes(),
-                    local[3].swap_bytes(),
-                ],
-                [
-                    remote[0].swap_bytes(),
-                    remote[1].swap_bytes(),
-                    remote[2].swap_bytes(),
-                    remote[3].swap_bytes(),
-                ],
+                ctx.local_ip6().map(|x| x.swap_bytes()),
+                ctx.remote_ip6().map(|x| x.swap_bytes()),
                 true,
             )
         }
