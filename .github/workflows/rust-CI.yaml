@@ -46,6 +46,12 @@ jobs:
       - id: ndk-setup
         if: steps.cache-rustup.outputs.cache-hit != 'true'
         name: Install Android NDK
+        env:
+          TARGET: aarch64-linux-android
+          # NDK: ${{ env.ANDROID_NDK_HOME }}
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: /opt/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_AR: /opt/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+
         shell: bash
         run: |
           sudo apt update
@@ -57,10 +63,6 @@ jobs:
           rm /opt/android-sdk/commandlinetools.zip
           yes | /opt/android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=/opt/android-sdk --licenses || if [ $? -ne '141' ]; then exit $?; fi; > /dev/null
           /opt/android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=/opt/android-sdk --install "ndk;29.0.13113456"
-          echo "[target.aarch64-linux-android]" >> ${HOME}/.cargo/config.toml
-          echo "ar = \"/opt/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar\"" >> ${HOME}/.cargo/config.toml
-          echo "linker = \"/opt/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang\"" >> ${HOME}/.cargo/config.toml
-          cat /.cargo/config.toml
           
       - name: build ndk-setup
         run: cargo +nightly build -Zbuild-std --target aarch64-linux-android --release -j 8
