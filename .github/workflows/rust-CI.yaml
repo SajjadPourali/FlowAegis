@@ -60,7 +60,8 @@ jobs:
           echo "[target.aarch64-linux-android]" >> ${HOME}/.cargo/config.toml
           echo "ar = \"/opt/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar\"" >> ${HOME}/.cargo/config.toml
           echo "linker = \"/opt/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang\"" >> ${HOME}/.cargo/config.toml
-      
+          cat /.cargo/config.toml
+          
       - name: build ndk-setup
         run: cargo +nightly build -Zbuild-std --target aarch64-linux-android --release -j 8
       - name: Run cargo check
