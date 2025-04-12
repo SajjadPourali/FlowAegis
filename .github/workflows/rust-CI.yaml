@@ -21,6 +21,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            /opt/android-sdk/
           key: lints-workflow-${{ matrix.build }}-rustup
 
       - id: rustup-setup
@@ -42,6 +43,25 @@ jobs:
           echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> $GITHUB_PATH
           source "${HOME}/.cargo/env"
 
+      - id: ndk-setup
+        if: steps.cache-rustup.outputs.cache-hit != 'true'
+        name: Install Android NDK
+        shell: bash
+        run: |
+          apt update
+          apt install -y openjdk-21-jdk-headless
+          mkdir /opt/android-sdk
+          wget https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -O /opt/android-sdk/commandlinetools.zip
+          unzip /opt/android-sdk/commandlinetools.zip -d /opt/android-sdk
+          rm /opt/android-sdk/commandlinetools.zip
+          yes | /opt/android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=/opt/android-sdk --licenses || if [ $? -ne '141' ]; then exit $?; fi; > /dev/null
+          /opt/android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=/opt/android-sdk --install "ndk;29.0.13113456"
+          echo "[target.aarch64-linux-android]" >> ${HOME}/.cargo/config.toml
+          echo "ar = \"/opt/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar\"" >> ${HOME}/.cargo/config.toml
+          echo "linker = \"/opt/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang\"" >> ${HOME}/.cargo/config.toml
+      
+      - name: build ndk-setup
+        run: cargo +nightly build -Zbuild-std --target aarch64-linux-android --release -j 8
       - name: Run cargo check
         run: cargo check --all-features --all-targets --verbose
       - name: Run cargo test
