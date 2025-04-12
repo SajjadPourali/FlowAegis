@@ -48,9 +48,10 @@ jobs:
         name: Install Android NDK
         shell: bash
         run: |
-          apt update
-          apt install -y openjdk-21-jdk-headless
-          mkdir /opt/android-sdk
+          sudo apt update
+          sudo apt install -y openjdk-21-jdk-headless
+          sudo mkdir /opt/android-sdk
+          sudo chown $USER:$USER /opt/android-sdk
           wget https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -O /opt/android-sdk/commandlinetools.zip
           unzip /opt/android-sdk/commandlinetools.zip -d /opt/android-sdk
           rm /opt/android-sdk/commandlinetools.zip
