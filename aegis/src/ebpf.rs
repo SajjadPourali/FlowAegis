@@ -499,7 +499,7 @@ impl Ebpf {
 
         let program: &mut aya::programs::CgroupSkb = self
             .inner
-            .program_mut("tc_egress")
+            .program_mut("cgroup_skb")
             .unwrap()
             .try_into()
             .unwrap();

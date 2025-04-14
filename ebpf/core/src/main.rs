@@ -35,7 +35,7 @@ const ETH_P_IP6: u16 = 0x86DD;
 const SK_PASS: i32 = aya_ebpf::bindings::sk_action::SK_PASS as i32;
 
 #[cgroup_skb]
-pub fn tc_egress(ctx: SkBuffContext) -> i32 {
+pub fn cgroup_skb(ctx: SkBuffContext) -> i32 {
     let tag = unsafe { *ctx.skb.skb }.priority;
 
     let Some(cgroup_info) = (unsafe { SOCKET_MARK_MAP.get(&tag) }) else {
