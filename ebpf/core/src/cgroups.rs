@@ -94,9 +94,25 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     let tgid = ctx.tgid();
 
     if bpf_sock_addr.protocol != 6 || main_program_info.pid == tgid {
+        let sock = unsafe { *ctx.sock_addr };
+        let o = unsafe { *bpf_sock_addr.__bindgen_anon_1.sk }.src_port;
+        info!(&ctx, "connect udp {}", (o as u16));
         // TCP
         return 1;
     }
+    let mut tag: u32 = 0;
+    let tag_size = core::mem::size_of_val(&tag) as i32;
+
+    unsafe {
+        aya_ebpf::helpers::r#gen::bpf_getsockopt(
+            ctx.sock_addr as *const _ as *mut core::ffi::c_void,
+            aya_ebpf::bindings::SOL_SOCKET as i32,
+            aya_ebpf::bindings::SO_COOKIE as i32,
+            &mut tag as *mut _ as *mut core::ffi::c_void,
+            tag_size,
+        );
+    }
+    
     let ip = [0, 0, u32::MAX, bpf_sock_addr.user_ip4.swap_bytes()];
     let port = (bpf_sock_addr.user_port as u16).swap_bytes();
 
@@ -182,10 +198,11 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     //     cgroup_info.pid,
     //     cgroup_info.tgid,
     // );
-    mark_socket(
+    let tag = mark_socket(
         ctx.sock_addr as *const _ as *mut core::ffi::c_void,
         cgroup_info,
     );
+    info!(&ctx, "connect4 {}", tag);
 
     match action {
         Action::Deny => 0,
@@ -359,6 +376,7 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
 
 #[sock_ops]
 pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
+    return 1 ;
     let is_ipv6 = match ctx.family() {
         2 => false,
         10 => true,

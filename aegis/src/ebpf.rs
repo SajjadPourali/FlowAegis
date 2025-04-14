@@ -7,7 +7,7 @@ use std::{
 
 use aya::{
     maps::{AsyncPerfEventArray, lpm_trie::Key},
-    programs::{CgroupAttachMode, CgroupSockAddr, SockOps, TracePoint},
+    programs::{CgroupAttachMode, CgroupSkbAttachType, CgroupSockAddr, SockOps, TracePoint},
     util::online_cpus,
 };
 use bytes::BytesMut;
@@ -496,6 +496,21 @@ impl Ebpf {
             .unwrap();
         program.load().unwrap();
         program.attach(&cgroup, CgroupAttachMode::Single).unwrap();
+
+        let program: &mut aya::programs::CgroupSkb = self
+            .inner
+            .program_mut("tc_egress")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        program.load().unwrap();
+        program
+            .attach(
+                &cgroup,
+                CgroupSkbAttachType::Egress,
+                CgroupAttachMode::Single,
+            )
+            .unwrap();
     }
     pub fn get_event_stream(&mut self) -> EbpfMessageStream {
         // let mut process_map = HashMap::new();
