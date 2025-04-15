@@ -472,7 +472,8 @@ impl Ebpf {
             let Ok(p) = p else { continue };
             let running_process_path = p.exe().unwrap_or_default();
             let running_process_id = p.pid();
-            for (path, rule_id) in addr_rule_map.iter() { // todo
+            for (path, rule_id) in addr_rule_map.iter() {
+                // todo
                 if running_process_path.starts_with(path) {
                     current_path_pid_map.insert(running_process_id as u32, *rule_id);
                 }
