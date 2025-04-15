@@ -2,14 +2,12 @@ use core::u32;
 
 use aya_ebpf::{
     EbpfContext,
-    bindings::path,
     helpers::bpf_probe_read_kernel_str_bytes,
     macros::{map, tracepoint},
     maps::{LpmTrie, lpm_trie::Key},
     programs::TracePointContext,
 };
 use aya_log_ebpf::info;
-use ebpf_common::PathKey;
 
 use crate::PID_RULE_MAP;
 
@@ -43,17 +41,18 @@ pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
             data: buf,
         };
         if let Some(path_id) = PATH_RULES.get(&key) {
-            if let Some(lpid) = last_path_id {
-                if lpid == path_id {
-                    continue;
+            match last_path_id {
+                Some(lpid) if lpid == path_id => continue,
+                Some(lpid) => {
+                    PID_RULE_MAP
+                        .insert(&(pid, *lpid), &(pid, *path_id), 0)
+                        .unwrap();
                 }
-                PID_RULE_MAP
-                    .insert(&(pid, *lpid), &(pid, *path_id), 0)
-                    .unwrap();
-            } else {
-                PID_RULE_MAP
-                    .insert(&(pid, u32::MAX), &(pid, *path_id), 0)
-                    .unwrap();
+                None => {
+                    PID_RULE_MAP
+                        .insert(&(pid, u32::MAX), &(pid, *path_id), 0)
+                        .unwrap();
+                }
             }
             last_path_id = Some(path_id);
         } else {
@@ -61,7 +60,7 @@ pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
         }
     }
     let key = Key {
-        prefix_len: (128 * 8) as u32,
+        prefix_len: (buf.len() * 8) as u32,
         data: buf,
     };
     if let Some(path_id) = PATH_RULES.get(&key) {

@@ -12,8 +12,8 @@ use aya::{
 };
 use bytes::BytesMut;
 use ebpf_common::{
-    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, PathKey, RuleV4, RuleV6,
-    SocketAddrCompat, u128_to_u32_array,
+    Action, CgroupInfo, LpmValue, MainProgramInfo, NetworkTuple, RuleV4, RuleV6, SocketAddrCompat,
+    u128_to_u32_array,
 };
 use futures::{
     Stream, StreamExt,
@@ -383,11 +383,6 @@ impl Ebpf {
             // }
 
             for (rule, prefix) in Into::<Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)>>::into(r) {
-                let uid = match rule {
-                    ebpf_common::_Rule::V4(rule_v4) => rule_v4.uid,
-                    ebpf_common::_Rule::V6(rule_v6) => rule_v6.uid,
-                };
-
                 match rule {
                     ebpf_common::_Rule::V4(rule_v4) => {
                         let transport_id = transport
@@ -477,7 +472,7 @@ impl Ebpf {
             let Ok(p) = p else { continue };
             let running_process_path = p.exe().unwrap_or_default();
             let running_process_id = p.pid();
-            for (path, rule_id) in addr_rule_map.iter() {
+            for (path, rule_id) in addr_rule_map.iter() { // todo
                 if running_process_path.starts_with(path) {
                     current_path_pid_map.insert(running_process_id as u32, *rule_id);
                 }

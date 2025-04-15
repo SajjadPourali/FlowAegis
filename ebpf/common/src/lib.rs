@@ -197,13 +197,13 @@ pub struct LpmValue {
     pub action: Action,
 }
 
-#[cfg(feature = "user")]
-unsafe impl aya::Pod for PathKey {}
-#[repr(C, packed)]
-#[derive(Copy, Clone)]
-pub struct PathKey {
-    pub flags: u16, // 1 = has uid
-    // pub path_len: u8,
-    pub pid: u32,
-    pub path: [u8; 128],
-}
+// #[cfg(feature = "user")]
+// unsafe impl aya::Pod for PathKey {}
+// #[repr(C, packed)]
+// #[derive(Copy, Clone)]
+// pub struct PathKey {
+//     pub flags: u16, // 1 = has uid
+//     // pub path_len: u8,
+//     pub pid: u32,
+//     pub path: [u8; 128],
+// }
