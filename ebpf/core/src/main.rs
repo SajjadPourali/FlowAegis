@@ -12,7 +12,6 @@ use aya_log_ebpf::info;
 use cgroups::{NETWORK_TUPLE, SOCKET_MARK_MAP};
 use ebpf_common::{NetworkTuple, SocketAddrCompat};
 use network_types::{
-    eth::{EthHdr, EtherType},
     ip::{self, IpHdr, IpProto, Ipv4Hdr, Ipv6Hdr},
     tcp::TcpHdr,
     udp::UdpHdr,
@@ -45,16 +44,21 @@ pub fn cgroup_sk(ctx: SockContext) -> i32 {
 
 #[cgroup_skb]
 pub fn cgroup_skb(ctx: SkBuffContext) -> i32 {
-    let tag = unsafe { *ctx.skb.skb }.priority;
+    let sock_cookie = unsafe {
+        aya_ebpf::helpers::r#gen::bpf_get_socket_cookie(
+            ctx.skb.skb as *const _ as *mut core::ffi::c_void,
+        )
+    };
 
-    let Some(cgroup_info) = (unsafe { SOCKET_MARK_MAP.get(&tag) }) else {
+    let Some(cgroup_info) = (unsafe { SOCKET_MARK_MAP.get(&sock_cookie) }) else {
         return SK_PASS;
     };
-    SOCKET_MARK_MAP.remove(&tag).unwrap();
+
+    SOCKET_MARK_MAP.remove(&sock_cookie).unwrap();
     unsafe {
         (*ctx.skb.skb).priority = cgroup_info.tag;
     }
-
+    info!(&ctx, "{}", unsafe { (*ctx.skb.skb) }.priority);
     let protocol = unsafe { (*ctx.skb.skb).protocol as u16 }.swap_bytes();
 
     let (src_addr, dst_addr, ipv6, proto) = match protocol {

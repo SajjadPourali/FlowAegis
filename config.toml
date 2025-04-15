@@ -42,7 +42,7 @@ startswith = "/usr/bin/"
 [rule.test2]
 action = "Forward"
 # ipv6 = ["::1", 0]
-path = "usrbin"
+# path = "usrbin"
 transport = "local_machine"
 
 # [rules.test4]

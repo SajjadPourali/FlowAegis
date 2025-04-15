@@ -7,6 +7,7 @@ use aya_ebpf::{
     maps::{LpmTrie, lpm_trie::Key},
     programs::TracePointContext,
 };
+
 use aya_log_ebpf::info;
 
 use crate::PID_RULE_MAP;
@@ -23,19 +24,19 @@ pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
 
     // data.path = {
     let mut buf = [0u8; 128];
-    let Ok(_path) = unsafe { ctx.read_at::<u8>(8) }.and_then(|ptr| unsafe {
+    let Ok(filler_buffer) = unsafe { ctx.read_at::<u8>(8) }.and_then(|ptr| unsafe {
         bpf_probe_read_kernel_str_bytes(ctx.as_ptr().offset(ptr as isize) as *const u8, &mut buf)
     }) else {
         return 0;
     };
 
-    let maximum_len = _path.len().min(buf.len());
+    let effective_len = filler_buffer.len().min(buf.len());
 
     let pid = ctx.pid();
     let mut last_path_id: Option<&u32> = None;
 
-    for i in 0..=maximum_len {
-        let index = maximum_len.saturating_sub(i);
+    for i in 0..=effective_len {
+        let index = effective_len.saturating_sub(i);
         let key = Key {
             prefix_len: (index * 8) as u32,
             data: buf,

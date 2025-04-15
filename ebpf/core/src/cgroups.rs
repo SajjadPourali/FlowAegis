@@ -1,6 +1,5 @@
 use aya_ebpf::{
     EbpfContext,
-    helpers::r#gen::bpf_get_prandom_u32,
     macros::{cgroup_sock_addr, map, sock_ops},
     maps::{Array, LpmTrie, LruHashMap, PerfEventArray, lpm_trie::Key},
     programs::{SockAddrContext, SockOpsContext},
@@ -31,61 +30,31 @@ pub static TRANSPORT: Array<SocketAddrCompat> = Array::with_max_entries(100, 0);
 pub static NETWORK_TUPLE: PerfEventArray<NetworkTuple> = PerfEventArray::new(0);
 
 #[map]
-pub static SOCKET_MARK_MAP: LruHashMap<u32, CgroupInfo> = LruHashMap::with_max_entries(1024, 0);
-
-pub fn set_socket_mark(bpf_socket: *mut core::ffi::c_void, tag: u32) {
-    unsafe {
-        aya_ebpf::helpers::r#gen::bpf_setsockopt(
-            bpf_socket,
-            aya_ebpf::bindings::SOL_SOCKET as i32,
-            aya_ebpf::bindings::SO_PRIORITY as i32,
-            &tag as *const _ as *mut core::ffi::c_void,
-            core::mem::size_of_val(&tag) as i32,
-        );
-    };
-}
-
-pub fn get_socket_mark(bpf_socket: *mut core::ffi::c_void) -> u32 {
-    let mut tag: u32 = 0;
-    let tag_size = core::mem::size_of_val(&tag) as i32;
-
-    unsafe {
-        aya_ebpf::helpers::r#gen::bpf_getsockopt(
-            bpf_socket,
-            aya_ebpf::bindings::SOL_SOCKET as i32,
-            aya_ebpf::bindings::SO_PRIORITY as i32,
-            &mut tag as *mut _ as *mut core::ffi::c_void,
-            tag_size,
-        );
-    }
-    tag
-}
-
-pub fn mark_socket(bpf_socket: *mut core::ffi::c_void, mut cgroup_info: CgroupInfo) -> u32 {
-    let old_socket_mark = get_socket_mark(bpf_socket);
-    let mut tag = unsafe { bpf_get_prandom_u32() };
-    if tag == 0 || tag == old_socket_mark {
-        tag = unsafe { bpf_get_prandom_u32() };
-    }
-    cgroup_info.tag = tag;
-
-    SOCKET_MARK_MAP.insert(&tag, &cgroup_info, 0).unwrap();
-    set_socket_mark(bpf_socket, tag);
-    tag
-}
-
-pub fn unmark_socket<'a>(bpf_socket: *mut core::ffi::c_void) -> Option<&'a CgroupInfo> {
-    let marked_value = get_socket_mark(bpf_socket);
-    let tag = unsafe { SOCKET_MARK_MAP.get(&marked_value)? };
-    set_socket_mark(bpf_socket, tag.tag);
-    Some(tag)
-}
+pub static SOCKET_MARK_MAP: LruHashMap<u64, CgroupInfo> = LruHashMap::with_max_entries(1024, 0);
 
 #[cgroup_sock_addr(connect4)]
 pub fn connect4(ctx: SockAddrContext) -> i32 {
     let Some(main_program_info) = MAIN_APP_INFO.get(0) else {
         return 1;
     };
+
+    // info!(&ctx, "connect4xx {}", sock_cookie);
+
+    // for x in 0..100{
+    //     if x == 62 {
+    //         continue;
+    //     }
+    //     set_socket_markx(
+    //         ctx.sock_addr as *const _ as *mut core::ffi::c_void,
+    //         9999,
+    //         x as i32,
+    //     );
+    //     let r = get_socket_markx(
+    //         ctx.sock_addr as *const _ as *mut core::ffi::c_void,
+    //         x as i32,
+    //     );
+    //     info!(&ctx, "connect4 {} {}", x, r);
+    // }
 
     let bpf_sock_addr = unsafe { *ctx.sock_addr };
     let uid = ctx.uid();
@@ -186,10 +155,21 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     //     cgroup_info.pid,
     //     cgroup_info.tgid,
     // );
-    let tag = mark_socket(
-        ctx.sock_addr as *const _ as *mut core::ffi::c_void,
-        cgroup_info,
-    );
+
+    // sock_cookie
+
+    // let tag = mark_socket(
+    //     ctx.sock_addr as *const _ as *mut core::ffi::c_void,
+    //     cgroup_info,
+    // );
+    let sock_cookie = unsafe {
+        aya_ebpf::helpers::r#gen::bpf_get_socket_cookie(
+            ctx.sock_addr as *const _ as *mut core::ffi::c_void,
+        )
+    };
+    SOCKET_MARK_MAP
+        .insert(&sock_cookie, &cgroup_info, 0)
+        .unwrap();
     // info!(&ctx, "connect4 {}", tag);
 
     match action {
@@ -322,10 +302,18 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     cgroup_info.tag = 0;
     cgroup_info.transport = transport_id;
 
-    mark_socket(
-        ctx.sock_addr as *const _ as *mut core::ffi::c_void,
-        cgroup_info,
-    );
+    let sock_cookie = unsafe {
+        aya_ebpf::helpers::r#gen::bpf_get_socket_cookie(
+            ctx.sock_addr as *const _ as *mut core::ffi::c_void,
+        )
+    };
+    SOCKET_MARK_MAP
+        .insert(&sock_cookie, &cgroup_info, 0)
+        .unwrap();
+    // mark_socket(
+    //     ctx.sock_addr as *const _ as *mut core::ffi::c_void,
+    //     cgroup_info,
+    // );
 
     match action {
         Action::Deny => 0,
@@ -372,7 +360,14 @@ pub fn bpf_sockops(ctx: SockOpsContext) -> u32 {
             return 1;
         }
     };
-    let Some(cgroup_info) = unmark_socket(ctx.ops as *mut core::ffi::c_void) else {
+
+    let sock_cookie = unsafe {
+        aya_ebpf::helpers::r#gen::bpf_get_socket_cookie(
+            ctx.ops as *const _ as *mut core::ffi::c_void,
+        )
+    };
+
+    let Some(cgroup_info) = (unsafe { SOCKET_MARK_MAP.get(&sock_cookie) }) else {
         return 1;
     };
 
