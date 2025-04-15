@@ -12,7 +12,7 @@ use std::{
 };
 // use aya_log::EbpfLogger;
 
-use rule::{Action, Rule, Transport};
+use rule::{Action, Path, Rule, Transport};
 
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncReadExt, net::TcpStream};
@@ -24,14 +24,16 @@ mod rule;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     transport: HashMap<String, Transport>,
-    rules: HashMap<String, Rule>,
+    path: HashMap<String, Path>,
+    rule: HashMap<String, Rule>,
 }
 
 impl Config {
     pub async fn load(Args(args): Args) -> Result<Self, error::AegisError> {
         let mut config = Config {
             transport: HashMap::new(),
-            rules: HashMap::new(),
+            path: HashMap::new(),
+            rule: HashMap::new(),
         };
         let mut rule = Rule {
             action: Action::Allow,
@@ -122,7 +124,7 @@ impl Config {
                 return Ok(toml::from_str(&rules)?);
             }
         }
-        config.rules.insert("arg".to_string(), rule);
+        config.rule.insert("arg".to_string(), rule);
         Ok(config)
     }
 }
@@ -145,7 +147,8 @@ async fn main() -> Result<(), error::AegisError> {
     ebpf.set_proxy_v4_address(proxy.get_local_address_v4()?);
     ebpf.set_proxy_v6_address(proxy.get_local_address_v6()?);
     ebpf.set_transports(config.transport);
-    ebpf.set_rules(config.rules);
+    ebpf.set_paths(config.path);
+    ebpf.set_rules(config.rule);
     ebpf.load_main_program_info();
     ebpf.load_cgroups();
 

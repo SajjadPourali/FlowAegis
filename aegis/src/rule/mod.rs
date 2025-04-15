@@ -154,3 +154,11 @@ pub struct Transport {
     pub ipv4: Option<SocketAddrV4>,
     pub ipv6: Option<SocketAddrV6>,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum Path {
+    #[serde(rename = "exact")]
+    Exact(String),
+    #[serde(rename = "startswith")]
+    Startswith(String),
+}

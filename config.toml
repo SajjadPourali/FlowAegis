@@ -30,10 +30,19 @@
 ipv4 = "1.1.1.1:80"
 ipv6 = "[::1]:8080"
 
-[rules.test2]
+[path.usrbin]
+startswith = "/usr/bin/"
+
+# [path.usrbins]
+# startswith = "/usr/bin/c"
+
+# [path.curl]
+# exact = "/usr/bin/curl"
+
+[rule.test2]
 action = "Forward"
 # ipv6 = ["::1", 0]
-path = "/usr/bin/"
+path = "usrbin"
 transport = "local_machine"
 
 # [rules.test4]

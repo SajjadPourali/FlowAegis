@@ -193,6 +193,7 @@ unsafe impl aya::Pod for LpmValue {}
 pub struct LpmValue {
     pub rule_id: u32,
     pub transport_id: u32,
+    pub path_id: u32,
     pub action: Action,
 }
 

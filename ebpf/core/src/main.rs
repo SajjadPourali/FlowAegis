@@ -2,6 +2,7 @@
 #![no_main]
 
 use aya_ebpf::{
+    EbpfContext,
     bindings::{TC_ACT_OK, TC_ACT_PIPE, TC_ACT_SHOT},
     macros::{cgroup_skb, cgroup_sock, cgroup_sock_addr, classifier, map},
     maps::LruHashMap,
@@ -21,7 +22,7 @@ mod cgroups;
 mod sched;
 
 #[map]
-pub static PID_RULE_MAP: LruHashMap<u32, u32> = LruHashMap::with_max_entries(1024, 0);
+pub static PID_RULE_MAP: LruHashMap<(u32, u32), (u32, u32)> = LruHashMap::with_max_entries(1024, 0);
 
 #[cfg(not(test))]
 #[panic_handler]
@@ -33,6 +34,14 @@ const ETH_P_IP: u16 = 0x0800;
 const ETH_P_IP6: u16 = 0x86DD;
 // const SK_DROP: i32 = aya_ebpf::bindings::sk_action::SK_DROP as i32;
 const SK_PASS: i32 = aya_ebpf::bindings::sk_action::SK_PASS as i32;
+
+#[cgroup_sock(sock_create)]
+pub fn cgroup_sk(ctx: SockContext) -> i32 {
+    let sock = unsafe { *ctx.sock };
+
+    // info!(&ctx, "sk {} {}", sock.family, sock.protocol);
+    1
+}
 
 #[cgroup_skb]
 pub fn cgroup_skb(ctx: SkBuffContext) -> i32 {

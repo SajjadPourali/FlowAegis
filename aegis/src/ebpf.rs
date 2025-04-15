@@ -239,6 +239,7 @@ pub struct Ebpf {
     pub main_program_info: MainProgramInfo,
     pub rule_names: Vec<(String, Action)>,
     pub transport_names: HashMap<String, u32>,
+    pub path_names: HashMap<String, u32>,
     pub transports: HashMap<u32, SocketAddr>,
 }
 
@@ -276,6 +277,7 @@ impl Ebpf {
             },
             rule_names: Default::default(),
             transport_names: Default::default(),
+            path_names: Default::default(),
             transports: Default::default(),
         })
     }
@@ -332,33 +334,60 @@ impl Ebpf {
                 .insert(transport_id, transport.to_socket_addr());
         }
     }
+    pub fn set_paths(&mut self, paths: HashMap<String, crate::rule::Path>) {
+        if paths.is_empty() {
+            return;
+        }
+        // let mut path_map = HashMap::new();
+        let mut ebpf_path_map: aya::maps::LpmTrie<&mut aya::maps::MapData, [u8; 128], u32> =
+            aya::maps::LpmTrie::try_from(self.inner.map_mut("PATH_RULES").unwrap()).unwrap();
+        for (path_id, (path_name, path)) in paths.into_iter().enumerate() {
+            self.path_names.insert(path_name, path_id as u32);
+            let mut p = [0u8; 128];
+            let key = match path {
+                crate::rule::Path::Exact(path) => {
+                    p[..path.len().min(128)].copy_from_slice(path.as_bytes());
+                    Key::new(128 * 8, p)
+                }
+                crate::rule::Path::Startswith(path) => {
+                    p[..path.len().min(128)].copy_from_slice(path.as_bytes());
+                    Key::new(path.len() as u32 * 8, p)
+                }
+            };
+            ebpf_path_map.insert(&key, path_id as u32, 0).unwrap();
+        }
+    }
     pub fn set_rules(&mut self, rules: HashMap<String, crate::rule::Rule>) {
         let mut addr_rule_map: HashMap<String, u32> = HashMap::new();
         for (rule_id, (r_name, r)) in rules.into_iter().enumerate() {
             let mut v4_rules = Vec::new();
             let mut v6_rules = Vec::new();
-            let mut path_keys = Vec::new();
+
             let transport = r.transport.clone();
             self.rule_names.push((r_name, r.action.into()));
             let action = r.action.into();
-            let path_flags = (!r.uid.is_empty()) as u16;
-            let mut path = [0u8; 128];
-            let mut path_len = None;
-            if let Some(ref p) = r.path {
-                let len = p.len();
-                path_len = Some(len as u8);
-                addr_rule_map.insert(p.clone(), rule_id as u32);
-                path[..len.min(128)].copy_from_slice(p.as_bytes());
-            }
+            let path_id = r
+                .path
+                .as_ref()
+                .and_then(|p| self.path_names.get(p).cloned())
+                .unwrap_or(0); // todo: check if path set correctly in Rule
+            // let path_id = r.path.and_then(|p|self.);
+            // let path_flags = (!r.uid.is_empty()) as u16;
+            // let mut path = [0u8; 128];
+            // let mut path_len = None;
+            // if let Some(ref p) = r.path {
+            //     let len = p.len();
+            //     path_len = Some(len as u8);
+            //     addr_rule_map.insert(p.clone(), rule_id as u32);
+            //     path[..len.min(128)].copy_from_slice(p.as_bytes());
+            // }
 
             for (rule, prefix) in Into::<Vec<(ebpf_common::_Rule<RuleV4, RuleV6>, u8)>>::into(r) {
                 let uid = match rule {
                     ebpf_common::_Rule::V4(rule_v4) => rule_v4.uid,
                     ebpf_common::_Rule::V6(rule_v6) => rule_v6.uid,
                 };
-                if path_len.is_some() {
-                    path_keys.push(uid);
-                }
+
                 match rule {
                     ebpf_common::_Rule::V4(rule_v4) => {
                         let transport_id = transport
@@ -378,6 +407,7 @@ impl Ebpf {
                             LpmValue {
                                 rule_id: rule_id as u32,
                                 transport_id,
+                                path_id,
                                 action,
                             },
                         ));
@@ -399,6 +429,7 @@ impl Ebpf {
                             LpmValue {
                                 rule_id: rule_id as u32,
                                 transport_id,
+                                path_id,
                                 action,
                             },
                         ));
@@ -417,28 +448,28 @@ impl Ebpf {
             for (k, v) in &v6_rules {
                 v6.insert(k, v, 0).unwrap();
             }
-            if let Some(path_len) = path_len {
-                let mut path_map: aya::maps::LpmTrie<
-                    &mut aya::maps::MapData,
-                    ebpf_common::PathKey,
-                    u32,
-                > = aya::maps::LpmTrie::try_from(self.inner.map_mut("PATH_RULES").unwrap())
-                    .unwrap();
-                for pid in path_keys {
-                    let pk = PathKey {
-                        flags: path_flags,
-                        pid,
-                        path,
-                    };
+            // if let Some(path_len) = path_len {
+            //     let mut path_map: aya::maps::LpmTrie<
+            //         &mut aya::maps::MapData,
+            //         ebpf_common::PathKey,
+            //         u32,
+            //     > = aya::maps::LpmTrie::try_from(self.inner.map_mut("PATH_RULES").unwrap())
+            //         .unwrap();
+            //     for pid in path_keys {
+            //         let pk = PathKey {
+            //             flags: path_flags,
+            //             pid,
+            //             path,
+            //         };
 
-                    let pkk = Key::new(
-                        (size_of_val(&pk) - (128 - path_len as usize)) as u32 * 8,
-                        pk,
-                    );
+            //         let pkk = Key::new(
+            //             (size_of_val(&pk) - (128 - path_len as usize)) as u32 * 8,
+            //             pk,
+            //         );
 
-                    path_map.insert(&pkk, rule_id as u32, 0).unwrap();
-                }
-            }
+            //         path_map.insert(&pkk, rule_id as u32, 0).unwrap();
+            //     }
+            // }
         }
         // addr_rule_map;
         let mut current_path_pid_map: HashMap<u32, u32> = HashMap::new();
@@ -491,6 +522,15 @@ impl Ebpf {
         let program: &mut SockOps = self
             .inner
             .program_mut("bpf_sockops")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        program.load().unwrap();
+        program.attach(&cgroup, CgroupAttachMode::Single).unwrap();
+
+        let program: &mut aya::programs::CgroupSock = self
+            .inner
+            .program_mut("cgroup_sk")
             .unwrap()
             .try_into()
             .unwrap();

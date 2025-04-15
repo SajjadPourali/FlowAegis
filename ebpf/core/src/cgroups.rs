@@ -127,18 +127,18 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         if (flags & 1) == 1 {
             r4.uid = uid;
         }
-
         let key = Key::new(base_offset + 32, r4);
         if let Some(v) = V4_RULES.get(&key) {
             if (flags & 4) == 4 {
                 // has path
-                if let Some(rid) = unsafe { PID_RULE_MAP.get(&tgid) } {
-                    if rid == &(v.rule_id as u32) {
-                        rule = v.rule_id;
-                        action = v.action;
-                        transport_id = v.transport_id;
-                        break;
-                    }
+                if unsafe { PID_RULE_MAP.get(&(tgid, v.path_id)) }.is_some() {
+                    // info!(&ctx, "path_id {}", *path_id);
+                    // if path_id == &(v.path_id as u32) {
+                    rule = v.rule_id;
+                    action = v.action;
+                    transport_id = v.transport_id;
+                    break;
+                    // }
                 }
                 continue;
                 // r4.pid = pid;
@@ -190,7 +190,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
         ctx.sock_addr as *const _ as *mut core::ffi::c_void,
         cgroup_info,
     );
-    info!(&ctx, "connect4 {}", tag);
+    // info!(&ctx, "connect4 {}", tag);
 
     match action {
         Action::Deny => 0,
@@ -273,13 +273,13 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
         if let Some(v) = V6_RULES.get(&key) {
             if (flags & 4) == 4 {
                 // has path
-                if let Some(rid) = unsafe { PID_RULE_MAP.get(&tgid) } {
-                    if rid == &(v.rule_id as u32) {
-                        rule = v.rule_id;
-                        action = v.action;
-                        transport_id = v.transport_id;
-                        break;
-                    }
+                if unsafe { PID_RULE_MAP.get(&(tgid, v.path_id)) }.is_some() {
+                    // if rid == &(v.rule_id as u32) {
+                    rule = v.rule_id;
+                    action = v.action;
+                    transport_id = v.transport_id;
+                    break;
+                    // }
                 }
                 continue;
                 // r4.pid = pid;
