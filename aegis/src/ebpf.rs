@@ -358,7 +358,7 @@ impl Ebpf {
         }
     }
     pub fn set_rules(&mut self, rules: HashMap<String, crate::rule::Rule>) {
-        let mut addr_rule_map: HashMap<String, u32> = HashMap::new();
+        let addr_rule_map: HashMap<String, u32> = HashMap::new();
         for (rule_id, (r_name, r)) in rules.into_iter().enumerate() {
             let mut v4_rules = Vec::new();
             let mut v6_rules = Vec::new();

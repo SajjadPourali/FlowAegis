@@ -147,7 +147,6 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     cgroup_info.pid = pid;
     cgroup_info.tgid = tgid;
     cgroup_info.rule = rule;
-    cgroup_info.tag = 0;
     cgroup_info.transport = transport_id;
     // info!(
     //     &ctx,
@@ -299,7 +298,6 @@ pub fn connect6(ctx: SockAddrContext) -> i32 {
     cgroup_info.pid = pid;
     cgroup_info.tgid = tgid;
     cgroup_info.rule = rule;
-    cgroup_info.tag = 0;
     cgroup_info.transport = transport_id;
 
     let sock_cookie = unsafe {

@@ -55,10 +55,6 @@ pub fn cgroup_skb(ctx: SkBuffContext) -> i32 {
     };
 
     SOCKET_MARK_MAP.remove(&sock_cookie).unwrap();
-    unsafe {
-        (*ctx.skb.skb).priority = cgroup_info.tag;
-    }
-    info!(&ctx, "{}", unsafe { (*ctx.skb.skb) }.priority);
     let protocol = unsafe { (*ctx.skb.skb).protocol as u16 }.swap_bytes();
 
     let (src_addr, dst_addr, ipv6, proto) = match protocol {
