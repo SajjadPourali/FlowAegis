@@ -7,9 +7,9 @@ edition = "2024"
 aya-ebpf = { workspace = true }
 aya-log-ebpf = { workspace = true }
 ebpf-common = { path = "../common" }
-network-types = "0.0.7"
+network-types = "0.1.0"
 [build-dependencies]
-which = { workspace = true }
+which = { workspace = true,features = ["real-sys"] }
 # aya-tool = { git = "https://github.com/aya-rs/aya", branch = "main" }
 
 [[bin]]

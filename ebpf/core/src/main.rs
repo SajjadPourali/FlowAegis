@@ -60,15 +60,31 @@ pub fn cgroup_skb(ctx: SkBuffContext) -> i32 {
     let (src_addr, dst_addr, ipv6, proto) = match protocol {
         ETH_P_IP => {
             let ipv4hdr: Ipv4Hdr = ctx.load(0).map_err(|_| ()).unwrap();
-            let src_addr = [0, 0, u32::MAX, ipv4hdr.src_addr];
-            let dst_addr = [0, 0, u32::MAX, ipv4hdr.dst_addr];
+            let src_addr = [0, 0, 0xffff, ipv4hdr.src_addr().to_bits()];
+            let dst_addr = [0, 0, u32::MAX, ipv4hdr.dst_addr().to_bits()];
 
             (src_addr, dst_addr, false, ipv4hdr.proto)
         }
         ETH_P_IP6 => {
             let ipv6hdr: Ipv6Hdr = ctx.load(0).map_err(|_| ()).unwrap();
-            let src_addr = unsafe { ipv6hdr.src_addr.in6_u.u6_addr32 };
-            let dst_addr = unsafe { ipv6hdr.dst_addr.in6_u.u6_addr32 };
+            let src_addr = {
+                let ipv6_bits = ipv6hdr.src_addr().to_bits();
+                [
+                    (ipv6_bits >> 96) as u32,
+                    (ipv6_bits >> 64) as u32,
+                    (ipv6_bits >> 32) as u32,
+                    ipv6_bits as u32,
+                ]
+            };
+            let dst_addr = {
+                let ipv6_bits = ipv6hdr.dst_addr().to_bits();
+                [
+                    (ipv6_bits >> 96) as u32,
+                    (ipv6_bits >> 64) as u32,
+                    (ipv6_bits >> 32) as u32,
+                    ipv6_bits as u32,
+                ]
+            };
             (src_addr, dst_addr, true, ipv6hdr.next_hdr)
         }
         _ => return SK_PASS,
@@ -79,13 +95,13 @@ pub fn cgroup_skb(ctx: SkBuffContext) -> i32 {
             let tcphdr: TcpHdr = ctx.load(transport_base_offset).map_err(|_| ()).unwrap();
 
             let src = SocketAddrCompat {
-                ip: src_addr.map(|x| x.swap_bytes()),
-                port: tcphdr.source.swap_bytes(),
+                ip: src_addr,
+                port: u16::from_be_bytes(tcphdr.source),
                 is_ipv6: ipv6,
             };
             let dst = SocketAddrCompat {
                 ip: dst_addr.map(|x| x.swap_bytes()),
-                port: tcphdr.dest,
+                port: u16::from_be_bytes(tcphdr.dest),
                 is_ipv6: ipv6,
             };
             NETWORK_TUPLE.output(
