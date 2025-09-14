@@ -8,6 +8,7 @@ use aya_ebpf::{
     programs::TracePointContext,
 };
 
+#[cfg(feature = "log")]
 use aya_log_ebpf::info;
 
 use crate::PID_RULE_MAP;

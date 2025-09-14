@@ -5,6 +5,7 @@ use aya_ebpf::{
     programs::{SockAddrContext, SockOpsContext},
 };
 
+#[cfg(feature = "log")]
 use aya_log_ebpf::info;
 
 use ebpf_common::{
@@ -65,6 +66,7 @@ pub fn connect4(ctx: SockAddrContext) -> i32 {
     if bpf_sock_addr.protocol != 6 || main_program_info.pid == tgid {
         let sock = unsafe { *ctx.sock_addr };
         let o = unsafe { *bpf_sock_addr.__bindgen_anon_1.sk }.src_port;
+        #[cfg(feature = "log")]
         info!(&ctx, "connect udp {}", o as u16);
         // TCP
         return 1;

@@ -8,6 +8,7 @@ use aya_ebpf::{
     maps::LruHashMap,
     programs::{SkBuffContext, SockAddrContext, SockContext, TcContext},
 };
+#[cfg(feature = "log")]
 use aya_log_ebpf::info;
 use cgroups::{NETWORK_TUPLE, SOCKET_MARK_MAP};
 use ebpf_common::{NetworkTuple, SocketAddrCompat};
@@ -122,6 +123,7 @@ pub fn cgroup_skb(ctx: SkBuffContext) -> i32 {
         }
         IpProto::Udp => {
             let udphdr: UdpHdr = ctx.load(transport_base_offset).map_err(|_| ()).unwrap();
+            #[cfg(feature = "log")]
             info!(&ctx, "udp");
         }
         _ => return SK_PASS,

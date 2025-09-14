@@ -5,13 +5,17 @@ edition = "2024"
 
 [dependencies]
 aya-ebpf = { workspace = true }
-aya-log-ebpf = { workspace = true }
+aya-log-ebpf = { workspace = true, optional = true }
 ebpf-common = { path = "../common" }
 network-types = "0.1.0"
 [build-dependencies]
-which = { workspace = true,features = ["real-sys"] }
+which = { workspace = true, features = ["real-sys"] }
 # aya-tool = { git = "https://github.com/aya-rs/aya", branch = "main" }
 
 [[bin]]
 name = "ebpf"
 path = "src/main.rs"
+
+[features]
+default = ["log"]
+log = ["dep:aya-log-ebpf"]
